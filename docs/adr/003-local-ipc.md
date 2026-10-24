@@ -16,9 +16,10 @@ Usar mensagens protobuf geradas por Prost sobre sockets Unix por usuário e name
 pipes no Windows. O framing usa prefixo de 4 bytes big-endian e máximo de 1 MiB.
 Versões major/minor são carregadas no envelope. A conexão tem timeout de 3 s;
 admitem-se no máximo oito clientes ativos, sem fila de espera quando todos os
-slots estão ocupados. Em Unix, o socket usa modo `0600` e o peer UID é conferido.
-No Windows, a criação do pipe usa descriptor de segurança limitado ao owner;
-essa ACL ainda requer teste em runner Windows.
+slots estão ocupados. Em Unix, o socket fica dentro de um diretório por usuário
+com modo `0700`, evitando depender de `fchmod` no descritor do socket; o peer UID
+também é conferido. No Windows, a criação do pipe usa descriptor de segurança
+limitado ao owner; essa ACL ainda requer teste em runner Windows.
 
 ## Alternativas consideradas
 

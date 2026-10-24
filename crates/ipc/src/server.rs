@@ -9,8 +9,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use interprocess::local_socket::{
-    ListenerOptions, tokio::Listener as LocalSocketListener, traits::StreamCommon as _,
-    traits::tokio::Listener as _,
+    tokio::Listener as LocalSocketListener, traits::StreamCommon as _, traits::tokio::Listener as _,
 };
 use native_monitor_collector_api::Capability;
 use native_monitor_domain::SystemSnapshot;
@@ -242,17 +241,21 @@ fn error_response(error_code: &str, error_message: String) -> Response {
 
 #[cfg(unix)]
 fn create_listener() -> io::Result<LocalSocketListener> {
-    use interprocess::local_socket::{GenericFilePath, ToFsName};
-    use interprocess::os::unix::local_socket::ListenerOptionsExt as _;
+    crate::unix_endpoint::prepare_runtime_directory()?;
+    create_listener_at(&crate::unix_endpoint::socket_path())
+}
 
-    let path = socket_path();
+#[cfg(unix)]
+fn create_listener_at(path: &std::path::Path) -> io::Result<LocalSocketListener> {
+    use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
+
     let name = path.to_fs_name::<GenericFilePath>()?;
-    ListenerOptions::new().name(name).mode(0o600).create_tokio()
+    ListenerOptions::new().name(name).create_tokio()
 }
 
 #[cfg(windows)]
 fn create_listener() -> io::Result<LocalSocketListener> {
-    use interprocess::local_socket::{GenericNamespaced, ToNsName};
+    use interprocess::local_socket::{GenericNamespaced, ListenerOptions, ToNsName};
     use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
     use interprocess::os::windows::security_descriptor::SecurityDescriptor;
     use widestring::U16CString;
@@ -267,12 +270,6 @@ fn create_listener() -> io::Result<LocalSocketListener> {
         .name(socket_name)
         .security_descriptor(security_descriptor)
         .create_tokio()
-}
-
-#[cfg(unix)]
-fn socket_path() -> std::path::PathBuf {
-    let user_id = crate::unix_identity::effective_user_id();
-    std::env::temp_dir().join(format!("native-system-monitor-{user_id}.sock"))
 }
 
 #[cfg(windows)]
@@ -317,6 +314,28 @@ mod tests {
         wire::{Operation, Request},
     };
     use native_monitor_domain::SystemSnapshot;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn binds_local_listener_without_requiring_socket_file_chmod_support() {
+        use super::create_listener_at;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
+        let runtime_directory = std::env::temp_dir().join(format!(
+            "native-system-monitor-listener-test-{}-{id}",
+            std::process::id()
+        ));
+        crate::unix_endpoint::ensure_private_directory(&runtime_directory)
+            .expect("create private test runtime directory");
+
+        let socket_path = runtime_directory.join("agent.sock");
+        let listener = create_listener_at(&socket_path).expect("bind local IPC listener");
+        drop(listener);
+
+        std::fs::remove_dir(runtime_directory).expect("remove test runtime directory");
+    }
 
     #[test]
     fn rejects_incompatible_protocol_major() {

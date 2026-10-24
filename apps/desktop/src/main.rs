@@ -136,7 +136,7 @@ fn main() -> Result<()> {
                         }
                     }
                     Err(error) => {
-                        let status = format!("Agente indisponível · {error}");
+                        let status = format!("Agente indisponível · {error:#}");
                         let weak_for_status = weak_window.clone();
                         if let Err(invoke_error) = slint::invoke_from_event_loop(move || {
                             if let Some(window) = weak_for_status.upgrade() {
@@ -148,7 +148,7 @@ fn main() -> Result<()> {
                                 window.set_memory_status(SharedString::from(
                                     "Sem conexão com o agente",
                                 ));
-                                window.set_process_count(SharedString::from("0"));
+                                window.set_process_count(SharedString::from("—"));
                                 window.set_processes(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_memory_history(ModelRc::new(VecModel::from(Vec::new())));

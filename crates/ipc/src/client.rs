@@ -55,7 +55,7 @@ pub async fn request(operation: Operation, process_limit: u32, sort_by: &str) ->
 async fn connect() -> std::io::Result<LocalSocketStream> {
     use interprocess::local_socket::{GenericFilePath, ToFsName};
 
-    let path = socket_path();
+    let path = crate::unix_endpoint::socket_path();
     let name = path.to_fs_name::<GenericFilePath>()?;
     LocalSocketStream::connect(name).await
 }
@@ -67,12 +67,6 @@ async fn connect() -> std::io::Result<LocalSocketStream> {
     let name = pipe_name();
     let socket_name = name.to_ns_name::<GenericNamespaced>()?;
     LocalSocketStream::connect(socket_name).await
-}
-
-#[cfg(unix)]
-fn socket_path() -> std::path::PathBuf {
-    let user_id = super::unix_identity::effective_user_id();
-    std::env::temp_dir().join(format!("native-system-monitor-{user_id}.sock"))
 }
 
 #[cfg(windows)]

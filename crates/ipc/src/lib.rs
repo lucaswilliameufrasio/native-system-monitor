@@ -2,6 +2,8 @@ pub mod client;
 pub mod frame;
 pub mod server;
 #[cfg(unix)]
+mod unix_endpoint;
+#[cfg(unix)]
 mod unix_identity;
 pub mod wire {
     include!(concat!(env!("OUT_DIR"), "/native_monitor.v1.rs"));
