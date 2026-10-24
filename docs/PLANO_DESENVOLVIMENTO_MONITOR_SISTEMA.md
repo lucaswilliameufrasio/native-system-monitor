@@ -52,7 +52,7 @@
 
 **Jornadas com critério mensurável:**
 
-1. Abrir app e em até 2 interações encontrar o processo que mais consome CPU ou RAM; ordenar por coluna e filtrar por nome/PID.
+1. Abrir o app pelo ícone, sem comando de terminal ou inicialização manual do agente, e em até 2 interações encontrar o processo que mais consome CPU ou RAM; ordenar por coluna e filtrar por nome/PID. Se o agente falhar, a GUI explica o estado e oferece recuperação/diagnóstico.
 2. Ver CPU total e por núcleo, memória, GPU e I/O com séries temporais e eixo temporal compartilhado.
 3. Selecionar disco físico → observar IOPS/MB/s/latência/temperatura → abrir aba SMART → entender diferença entre ocupação do volume e condição da unidade.
 4. Selecionar GPU entre duas ou mais → utilização, VRAM, temperatura, frequência, potência, processos quando suportados; ver claramente campos indisponíveis.
@@ -114,6 +114,14 @@
 │ Configurações     │                                                          │
 └───────────────────┴──────────────────────────────────────────────────────────┘
 ```
+
+**Lacunas da tela funcional do M0 (captura macOS):** a captura comprova coleta e conexão, mas ainda é uma tela de validação, não a experiência V1. Antes de expandir para M2, a primeira jornada deve:
+
+- Separar **Visão geral**, **Processos** e **Desempenho** em navegação clara, seguindo o layout proposto, sem empilhar todos os trabalhos numa única tela.
+- Fazer os gráficos ocuparem a área de plotagem disponível, com eixo temporal, unidade, intervalo selecionável e estado de aquecimento/ausência; eliminar séries fixas agrupadas num canto com grande área vazia.
+- Dar hierarquia e densidade consistentes a métricas e tabela: colunas alinhadas/ordenáveis, filtro fácil de encontrar, rolagem e layout útil ao redimensionar.
+- Exibir estado do agente e idade da última amostra de forma legível; falha, inicialização e dados indisponíveis precisam indicar a próxima ação sem representar ausência como zero.
+- Validar a tela em 960 × 640 e 1200 × 760, HiDPI e fontes nativas; manter screenshots de referência por plataforma para revisão visual.
 
 ### 3.4 Telas e comportamento
 
@@ -177,6 +185,8 @@
 1. **Modo usuário padrão:** o agente inicia no login e continua após fechamento da GUI. No macOS usa LaunchAgent, no Linux systemd --user (fallback explícito para outros init), no Windows uma tarefa de logon no Agendador de Tarefas inicia o agente sob a conta do próprio usuário, independente da GUI (sem serviço de sistema por padrão). O comportamento após **logout** não é garantido nesse modo; a UI explica isso.
 2. **Modo sistema opt-in:** instala serviço do sistema para headless/sem login (Windows Service preferencialmente `LocalService`, `systemd` system service ou LaunchDaemon), somente após consentimento/admin e com configuração/IPC segregados por usuário. Agente ainda opera com privilégios mínimos.
 3. **Helper privilegiado:** executável diferente, chamado apenas para operações autorizadas, nunca usando privilégio elevado como transporte de todas as métricas.
+
+**Contrato de primeira execução:** depois da instalação, o agente é registrado/iniciado pelo gerenciador de sessão do usuário; não se exige que a pessoa rode `agent run`, `monitorctl` ou comandos equivalentes. A GUI apenas se conecta ao agente e apresenta estado, retry e diagnóstico. Ela não cria um processo agente próprio nem encerra um agente independente ao fechar a janela. Comportamento de instalação, atualização, reinício após falha e desinstalação integra o ciclo de vida por OS.
 
 ### 4.2 Organização do repositório
 
@@ -536,13 +546,13 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 
 **Spikes obrigatórios:** tabela 10k linhas com ordenação/filtro, gráfico 1200 amostras, acessibilidade por OS e fallback renderer GPU/software. Reavaliar GPUI/Iced **apenas se** Slint falhar gates mínimos definidos; registrar números, não decidir pela estética apenas.
 
-**Aceite:** abrir GUI nos três OS V1; agente persistir após fechamento GUI; CLI mostrar status; build reproduzível; sem root/admin por padrão; testes de IPC e fake data passando.
+**Aceite:** abrir GUI nos três OS V1; agente persistir após fechamento GUI; CLI mostrar status; build reproduzível; sem root/admin por padrão; testes de IPC e fake data passando. O M0 é um slice de desenvolvimento: iniciar o agente manualmente por terminal é permitido somente nesse fluxo e não define a experiência do produto instalado.
 
 ### M1 — Primeira jornada completa: processos + CPU + memória
 
-**Entregas:** CPU total/por núcleo, RAM/swap, lista de processos, PID/start-time, top CPU/RAM, busca, ordenação, seleção e gráfico 5min, histogramas quando necessários, estados de permissão, testes e benchmarking inicial. Platform adapters mínimos.
+**Entregas:** CPU total/por núcleo, RAM/swap, lista de processos, PID/start-time, top CPU/RAM, busca, ordenação, seleção e gráfico 5min, histogramas quando necessários, estados de permissão, testes e benchmarking inicial; platform adapters mínimos. Incluir registro/inicialização do agente no login por usuário (LaunchAgent, systemd --user e tarefa de logon), primeira abertura sem terminal e recuperação/diagnóstico pela GUI. Revisar a tela M0 para cumprir os critérios visuais acima.
 
-**Aceite:** nenhum valor fake em modo real; processo criado/encerrado aparece e desaparece corretamente; PID reutilizado não herda histórico; abrir/fechar GUI não altera continuidade do agente; comportamento com 10k processos sintéticos passa orçamento de interação.
+**Aceite:** nenhum valor fake em modo real; processo criado/encerrado aparece e desaparece corretamente; PID reutilizado não herda histórico; abrir a GUI numa instalação limpa conecta ao agente sem comando manual; agente continua após fechar a GUI; há no máximo uma instância por usuário; falha de inicialização tem recuperação/diagnóstico pela GUI; comportamento com 10k processos sintéticos passa orçamento de interação. Screenshots e testes de redimensionamento confirmam os critérios de UI em cada OS V1.
 
 ### M2 — Desempenho, disco e rede
 
@@ -570,7 +580,7 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 
 ### M6 — Gestão avançada de processos e operação
 
-**Entregas:** processo detalhado, pai/filhos, sinais/encerrar gentil/forçar com confirmação, permissão por usuário, prioridades quando suportadas, logs de auditoria, install/uninstall agent, política de serviço por OS, setup e revogação helper.
+**Entregas:** processo detalhado, pai/filhos, sinais/encerrar gentil/forçar com confirmação, permissão por usuário, prioridades quando suportadas, logs de auditoria, setup e revogação do helper. Instalação e ciclo de vida padrão do agente passam a ser entregues no M1; este incremento cobre apenas políticas/serviços especiais que dependam de operação avançada.
 
 **Aceite:** proteção contra PID reuse, usuário não mata processos alheios sem autorização do sistema, agent não ganha privilégio indevido, desinstalação remove service/helper e mantém opção explícita de apagar configurações.
 
@@ -693,9 +703,9 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 
 **Épico E08 — Exporters:** pull, remote write v1, endpoint test, bounded queue, secrets, TLS, metrics hygiene, VM lab.
 
-**Épico E09 — Security:** local IPC auth, OS-specific services, privilege helper, actions, audit, threat model/fuzz.
+**Épico E09 — Security & agent lifecycle:** local IPC auth, inicialização automática por usuário sem terminal, recuperação e diagnóstico do agente, instalação/update/uninstall por OS, serviços privilegiados opt-in, helper, ações, auditoria, threat model/fuzz.
 
-**Épico E10 — UX:** tokens, dark/light, keyboard, a11y, errors/permissions, pt-BR/en-US, compact density, tests.
+**Épico E10 — UX:** navegação por jornada, refinamento da tela validada no M0, gráficos responsivos com eixo temporal, tabela de processos legível/ordenável, estados de startup/erro/permissão, tokens, dark/light, teclado, a11y, pt-BR/en-US, densidade compacta e screenshots de regressão.
 
 **Épico E11 — Release:** build, notarize/sign, packaging, update/uninstall, SBOM, docs, validated hardware matrix and performance report.
 
