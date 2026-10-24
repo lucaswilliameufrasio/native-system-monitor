@@ -1,0 +1,14 @@
+[package]
+name = "native-monitorctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+native-monitor-ipc = { path = "../../crates/ipc" }
+tokio.workspace = true
+
+[lints]
+workspace = true

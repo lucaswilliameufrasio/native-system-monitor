@@ -1,0 +1,27 @@
+[package]
+name = "native-monitor-ipc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[dependencies]
+anyhow.workspace = true
+interprocess.workspace = true
+libc.workspace = true
+native-monitor-collector-api = { path = "../collector-api" }
+native-monitor-domain = { path = "../domain" }
+prost.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+protoc-bin-vendored.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+widestring.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,22 @@
+[package]
+name = "native-monitor-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[dependencies]
+anyhow.workspace = true
+native-monitor-domain = { path = "../../crates/domain" }
+native-monitor-ipc = { path = "../../crates/ipc" }
+slint.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[build-dependencies]
+slint-build.workspace = true
+
+[lints]
+workspace = true

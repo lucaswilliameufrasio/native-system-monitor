@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package native_monitor.v1;
+
+enum Operation {
+  OPERATION_UNSPECIFIED = 0;
+  OPERATION_STATUS = 1;
+  OPERATION_CAPABILITIES = 2;
+  OPERATION_SNAPSHOT = 3;
+  OPERATION_PROCESSES = 4;
+}
+
+message Request {
+  uint32 protocol_major = 1;
+  Operation operation = 2;
+  uint32 process_limit = 3;
+  string sort_by = 4;
+  uint32 protocol_minor = 5;
+}
+
+message Response {
+  uint32 protocol_major = 1;
+  string error_code = 2;
+  string error_message = 3;
+  string status = 4;
+  repeated Capability capabilities = 5;
+  Snapshot snapshot = 6;
+  uint32 protocol_minor = 7;
+}
+
+message Capability {
+  string name = 1;
+  string status = 2;
+  string source = 3;
+}
+
+message Snapshot {
+  uint64 captured_at_unix_ms = 1;
+  CpuMetrics cpu = 2;
+  MemoryMetrics memory = 3;
+  repeated ProcessMetrics processes = 4;
+  repeated float cpu_history_percent = 5;
+  repeated float memory_history_percent = 6;
+  string collection_status = 7;
+}
+
+message CpuMetrics {
+  optional float total_usage_percent = 1;
+  repeated float per_core_usage_percent = 2;
+  string status = 3;
+}
+
+message MemoryMetrics {
+  optional uint64 total_bytes = 1;
+  optional uint64 used_bytes = 2;
+  optional uint64 swap_total_bytes = 3;
+  optional uint64 swap_used_bytes = 4;
+  string status = 5;
+}
+
+message ProcessMetrics {
+  uint32 pid = 1;
+  optional uint32 parent_pid = 2;
+  string name = 3;
+  optional float cpu_usage_percent = 4;
+  uint64 memory_bytes = 5;
+  uint64 start_time_unix_seconds = 6;
+}

@@ -1,0 +1,228 @@
+import { LineEdit, ListView, VerticalBox } from "std-widgets.slint";
+
+export struct ProcessRow {
+    name: string,
+    pid: string,
+    cpu: string,
+    memory: string,
+}
+
+component MetricPanel inherits Rectangle {
+    min-width: 0px;
+    in property <string> title;
+    in property <string> value;
+    in property <string> detail;
+    in property <color> accent;
+    background: #19212b;
+    border-color: #2c3744;
+    border-width: 1px;
+    border-radius: 6px;
+
+    VerticalBox {
+        padding: 12px;
+        spacing: 4px;
+        Text { text: title; color: #a6b3c2; font-size: 13px; }
+        Text { text: value; color: accent; font-size: 26px; }
+        Text { text: detail; color: #a6b3c2; font-size: 12px; overflow: elide; }
+    }
+}
+
+component ChartPanel inherits Rectangle {
+    min-width: 0px;
+    in property <string> title;
+    in property <[float]> points;
+    in property <color> accent;
+    background: #19212b;
+    border-color: #2c3744;
+    border-width: 1px;
+    border-radius: 6px;
+
+    VerticalBox {
+        padding: 12px;
+        spacing: 8px;
+        Text { text: title; color: #a6b3c2; font-size: 13px; }
+        Rectangle {
+            background: transparent;
+            vertical-stretch: 1;
+            HorizontalLayout {
+                spacing: 2px;
+                for point in points: Rectangle {
+                    width: 4px;
+                    height: 4px + 92px * point / 100;
+                    background: accent;
+                    border-radius: 2px;
+                }
+            }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Monitor do Sistema";
+    width: 1120px;
+    height: 780px;
+    background: #11161d;
+
+    in-out property <string> agent-status: "Conectando ao agente…";
+    in-out property <string> cpu-value: "—";
+    in-out property <string> cpu-status: "Aguardando primeira amostra";
+    in-out property <string> memory-value: "—";
+    in-out property <string> memory-status: "Aguardando primeira amostra";
+    in-out property <string> process-count: "0";
+    in-out property <[ProcessRow]> processes: [];
+    in-out property <[float]> cpu-history: [];
+    in-out property <[float]> memory-history: [];
+    callback filter-edited(string);
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 14px;
+
+        HorizontalLayout {
+            height: 48px;
+            Text {
+                text: "Monitor do Sistema";
+                color: #edf2f7;
+                font-size: 25px;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Text {
+                text: root.agent-status;
+                color: #a6b3c2;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+        }
+
+        HorizontalLayout {
+            height: 110px;
+            spacing: 12px;
+            alignment: stretch;
+
+            Rectangle {
+                min-width: 0px;
+                width: 32.5%;
+                background: transparent;
+                MetricPanel {
+                    title: "CPU";
+                    value: root.cpu-value;
+                    detail: root.cpu-status;
+                    accent: #7db6ff;
+                }
+            }
+            Rectangle {
+                min-width: 0px;
+                width: 32.5%;
+                background: transparent;
+                MetricPanel {
+                    title: "Memória";
+                    value: root.memory-value;
+                    detail: root.memory-status;
+                    accent: #4fc59a;
+                }
+            }
+            Rectangle {
+                min-width: 0px;
+                width: 32.5%;
+                background: transparent;
+                MetricPanel {
+                    title: "Processos";
+                    value: root.process-count;
+                    detail: "visíveis na amostra";
+                    accent: #e8b75b;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            height: 160px;
+            spacing: 12px;
+            alignment: stretch;
+
+            Rectangle {
+                min-width: 0px;
+                width: 49.4%;
+                background: transparent;
+                ChartPanel {
+                    title: "Histórico de CPU";
+                    points: root.cpu-history;
+                    accent: #7db6ff;
+                }
+            }
+            Rectangle {
+                min-width: 0px;
+                width: 49.4%;
+                background: transparent;
+                ChartPanel {
+                    title: "Histórico de memória";
+                    points: root.memory-history;
+                    accent: #4fc59a;
+                }
+            }
+        }
+
+        Rectangle {
+            background: #19212b;
+            border-color: #2c3744;
+            border-width: 1px;
+            border-radius: 6px;
+            vertical-stretch: 1;
+
+            VerticalBox {
+                padding: 12px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    height: 38px;
+                    Text {
+                        text: "Processos";
+                        color: #edf2f7;
+                        font-size: 18px;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    LineEdit {
+                        width: 260px;
+                        placeholder-text: "Filtrar por nome ou PID";
+                        input-type: search;
+                        edited(text) => { root.filter-edited(text); }
+                    }
+                }
+
+                HorizontalLayout {
+                    height: 26px;
+                    spacing: 10px;
+                    Text { text: "Nome"; color: #a6b3c2; horizontal-stretch: 1; }
+                    Text { text: "PID"; color: #a6b3c2; width: 90px; horizontal-alignment: right; }
+                    Text { text: "CPU %"; color: #a6b3c2; width: 90px; horizontal-alignment: right; }
+                    Text { text: "RAM MiB"; color: #a6b3c2; width: 100px; horizontal-alignment: right; }
+                }
+
+                ListView {
+                    vertical-stretch: 1;
+                    for process in root.processes: HorizontalLayout {
+                        height: 28px;
+                        spacing: 10px;
+                        Rectangle {
+                            background: transparent;
+                            horizontal-stretch: 1;
+                            Text {
+                                x: 0px;
+                                width: parent.width;
+                                text: process.name;
+                                color: #edf2f7;
+                                horizontal-alignment: left;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        Text { text: process.pid; color: #a6b3c2; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: process.cpu; color: #a6b3c2; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: process.memory; color: #a6b3c2; width: 100px; horizontal-alignment: right; vertical-alignment: center; }
+                    }
+                }
+            }
+        }
+    }
+}

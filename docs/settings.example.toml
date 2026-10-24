@@ -1,0 +1,3 @@
+collection_interval_ms = 1000
+history_capacity = 300
+max_processes_per_response = 1000

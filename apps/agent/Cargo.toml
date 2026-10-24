@@ -1,0 +1,20 @@
+[package]
+name = "native-monitor-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+native-monitor-collectors-common = { path = "../../crates/collectors-common" }
+native-monitor-collector-api = { path = "../../crates/collector-api" }
+native-monitor-domain = { path = "../../crates/domain" }
+native-monitor-ipc = { path = "../../crates/ipc" }
+native-monitor-settings = { path = "../../crates/settings" }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
