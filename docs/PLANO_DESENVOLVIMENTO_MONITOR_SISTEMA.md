@@ -118,7 +118,7 @@
 **Lacunas da tela funcional do M0 (captura macOS):** a captura comprova coleta e conexão, mas ainda é uma tela de validação, não a experiência V1. Antes de expandir para M2, a primeira jornada deve:
 
 - Separar **Visão geral**, **Processos** e **Desempenho** em navegação clara, seguindo o layout proposto, sem empilhar todos os trabalhos numa única tela.
-- Fazer os gráficos ocuparem a área de plotagem disponível, com eixo temporal, unidade, intervalo selecionável e estado de aquecimento/ausência; eliminar séries fixas agrupadas num canto com grande área vazia.
+- Fazer os gráficos ocuparem a área de plotagem disponível, com eixo temporal, unidade, seleção de janela de 1 ou 5 minutos e estado de aquecimento/ausência; eliminar séries fixas agrupadas num canto com grande área vazia.
 - Dar hierarquia e densidade consistentes a métricas e tabela: colunas alinhadas/ordenáveis, filtro fácil de encontrar, rolagem e layout útil ao redimensionar.
 - Exibir estado do agente e idade da última amostra de forma legível; falha, inicialização e dados indisponíveis precisam indicar a próxima ação sem representar ausência como zero.
 - Validar a tela em 960 × 640 e 1200 × 760, HiDPI e fontes nativas; manter screenshots de referência por plataforma para revisão visual.
@@ -186,7 +186,7 @@
 2. **Modo sistema opt-in:** instala serviço do sistema para headless/sem login (Windows Service preferencialmente `LocalService`, `systemd` system service ou LaunchDaemon), somente após consentimento/admin e com configuração/IPC segregados por usuário. Agente ainda opera com privilégios mínimos.
 3. **Helper privilegiado:** executável diferente, chamado apenas para operações autorizadas, nunca usando privilégio elevado como transporte de todas as métricas.
 
-**Contrato de primeira execução:** depois da instalação, o agente é registrado/iniciado pelo gerenciador de sessão do usuário; não se exige que a pessoa rode `agent run`, `monitorctl` ou comandos equivalentes. A GUI apenas se conecta ao agente e apresenta estado, retry e diagnóstico. Ela não cria um processo agente próprio nem encerra um agente independente ao fechar a janela. Comportamento de instalação, atualização, reinício após falha e desinstalação integra o ciclo de vida por OS.
+**Contrato de primeira execução:** abrir a GUI não exige que a pessoa rode `agent run`, `monitorctl` ou comandos equivalentes. Se o agente ainda não estiver conectado, a GUI solicita ao módulo de ciclo de vida que registre e inicie o agente pelo gerenciador da sessão do usuário; se já estiver ativo, registra apenas o início nos próximos logins. O gerenciador é dono do processo: a GUI não mantém um processo filho nem encerra o agente ao fechar a janela. Estado, erro e retry ficam visíveis. Instalação/atualização em caminho estável e remoção do registro na desinstalação são responsabilidade do empacotamento futuro. Ver ADR-004.
 
 ### 4.2 Organização do repositório
 
@@ -552,7 +552,7 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 
 **Entregas:** CPU total/por núcleo, RAM/swap, lista de processos, PID/start-time, top CPU/RAM, busca, ordenação, seleção e gráfico 5min, histogramas quando necessários, estados de permissão, testes e benchmarking inicial; platform adapters mínimos. Incluir registro/inicialização do agente no login por usuário (LaunchAgent, systemd --user e tarefa de logon), primeira abertura sem terminal e recuperação/diagnóstico pela GUI. Revisar a tela M0 para cumprir os critérios visuais acima.
 
-**Aceite:** nenhum valor fake em modo real; processo criado/encerrado aparece e desaparece corretamente; PID reutilizado não herda histórico; abrir a GUI numa instalação limpa conecta ao agente sem comando manual; agente continua após fechar a GUI; há no máximo uma instância por usuário; falha de inicialização tem recuperação/diagnóstico pela GUI; comportamento com 10k processos sintéticos passa orçamento de interação. Screenshots e testes de redimensionamento confirmam os critérios de UI em cada OS V1.
+**Aceite:** nenhum valor fake em modo real; processo criado/encerrado aparece e desaparece corretamente; PID reutilizado não herda histórico; abrir a GUI numa instalação limpa conecta ao agente sem comando manual; agente continua após fechar a GUI; há no máximo uma instância por usuário; falha de inicialização tem recuperação/diagnóstico pela GUI; comportamento com 10k processos sintéticos passa orçamento de interação. Screenshots e testes de redimensionamento confirmam os critérios de UI em cada OS V1. A remoção automática de registros no uninstall depende do empacotamento de M8.
 
 ### M2 — Desempenho, disco e rede
 

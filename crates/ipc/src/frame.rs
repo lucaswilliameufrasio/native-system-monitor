@@ -46,7 +46,10 @@ fn validate_length(length: usize) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{read_message, validate_length, write_message};
-    use crate::{PROTOCOL_MAJOR, PROTOCOL_MINOR, wire::Request};
+    use crate::{
+        PROTOCOL_MAJOR, PROTOCOL_MINOR,
+        wire::{Request, Response, Snapshot},
+    };
     use std::io;
     use tokio::io::AsyncWriteExt;
 
@@ -81,6 +84,35 @@ mod tests {
         let decoded: Request = read_message(&mut receiver).await.expect("read request");
 
         assert_eq!(decoded, request);
+    }
+
+    #[tokio::test]
+    async fn snapshot_history_interval_round_trips_over_ipc() {
+        let response = Response {
+            protocol_major: PROTOCOL_MAJOR,
+            protocol_minor: PROTOCOL_MINOR,
+            snapshot: Some(Snapshot {
+                history_interval_ms: 2_500,
+                ..Snapshot::default()
+            }),
+            ..Response::default()
+        };
+        let (mut sender, mut receiver) = tokio::io::duplex(128);
+
+        write_message(&mut sender, &response)
+            .await
+            .expect("write snapshot response");
+        let decoded: Response = read_message(&mut receiver)
+            .await
+            .expect("read snapshot response");
+
+        assert_eq!(
+            decoded
+                .snapshot
+                .expect("snapshot payload")
+                .history_interval_ms,
+            2_500
+        );
     }
 
     #[tokio::test]

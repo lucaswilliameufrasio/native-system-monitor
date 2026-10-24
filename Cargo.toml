@@ -4,6 +4,7 @@ members = [
     "apps/agent",
     "apps/desktop",
     "apps/monitorctl",
+    "crates/agent-lifecycle",
     "crates/collector-api",
     "crates/collectors-common",
     "crates/domain",

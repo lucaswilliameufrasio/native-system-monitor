@@ -9,6 +9,7 @@ build = "build.rs"
 [dependencies]
 anyhow.workspace = true
 native-monitor-domain = { path = "../../crates/domain" }
+native-monitor-agent-lifecycle = { path = "../../crates/agent-lifecycle" }
 native-monitor-ipc = { path = "../../crates/ipc" }
 slint.workspace = true
 tokio.workspace = true

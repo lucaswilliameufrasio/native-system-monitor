@@ -6,10 +6,13 @@ CPU, memória e processos no agente e expõe os dados à GUI e à CLI por IPC lo
 
 ## Status
 
-- A GUI e o agente são processos separados. Fechar a janela não encerra um agente
-  iniciado separadamente.
-- O agente ainda precisa ser iniciado manualmente; instalação e inicialização no
-  login entram em etapas posteriores.
+- A GUI e o agente são processos separados. Na primeira abertura, a GUI registra
+  o agente no gerenciador da sessão do usuário e o inicia se necessário; fechar a
+  janela não encerra a coleta.
+- O início no login usa LaunchAgent no macOS, `systemd --user` no Linux (fallback
+  XDG autostart sem reinício automático após falha) e tarefa de logon no Windows.
+  Não instala serviço de sistema nem exige root/admin. Remoção do registro no
+  uninstall depende do empacotamento futuro.
 - CPU começa como “aquecendo” até existir uma amostra delta válida. Dados
   indisponíveis não são apresentados como zero.
 - A lista de processos mostra nome, PID, processo pai, CPU e RAM. Linha de
@@ -33,15 +36,21 @@ cargo test --workspace
 cargo build --workspace
 ```
 
-Execute o agente, a CLI e a GUI em terminais separados:
+Depois de `cargo build --workspace`, execute a GUI; na primeira abertura ela
+registra/inicia o agente pela sessão do usuário. A CLI pode ser usada
+separadamente para diagnóstico:
 
 ```sh
-cargo run -p native-monitor-agent -- run
+cargo run -p native-monitor-desktop
 cargo run -p native-monitorctl -- status
 cargo run -p native-monitorctl -- capabilities
 cargo run -p native-monitorctl -- processes --sort cpu --limit 25
-cargo run -p native-monitor-desktop
 ```
+
+Em desenvolvimento, o registro aponta para os binários em `target/debug`; apagar
+ou mover esse diretório invalida o início automático registrado. Para um teste
+manual isolado do IPC, ainda é possível iniciar `cargo run -p
+native-monitor-agent -- run`, mas isso não é necessário no fluxo normal da GUI.
 
 O caminho opcional de configuração é TOML:
 
@@ -54,6 +63,8 @@ cargo run -p native-monitor-agent -- run docs/settings.example.toml
 - `apps/agent`: coleta em cadência única e serve snapshots locais.
 - `apps/desktop`: GUI Slint; leitura IPC em worker, sem I/O na thread visual.
 - `apps/monitorctl`: comandos de status, capacidades e processos.
+- `crates/agent-lifecycle`: registro/início por usuário nos gerenciadores de
+  sessão, sem serviço de sistema.
 - `crates/domain`: tipos de métricas, identidade de processo e histórico limitado.
 - `crates/collector-api` e `crates/collectors-common`: contrato e primeiro
   adaptador baseado em `sysinfo`.

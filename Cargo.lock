@@ -2782,6 +2782,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "native-monitor-agent-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "native-monitor-collector-api"
 version = "0.1.0"
 dependencies = [
@@ -2803,6 +2810,7 @@ name = "native-monitor-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "native-monitor-agent-lifecycle",
  "native-monitor-domain",
  "native-monitor-ipc",
  "slint",

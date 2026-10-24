@@ -26,8 +26,10 @@ cacheados. A GUI não coleta diretamente nem controla o ciclo de vida do agente.
 
 ## Consequências e revisão
 
-O agente ainda é iniciado manualmente neste incremento. Instalação, início no
-login e modos de serviço ficam para as etapas de empacotamento/operação do plano.
-IPC precisa limitar frames, clientes e tempo por solicitação, sem bloquear a
-coleta. Reavaliar apenas se requisitos de continuidade, isolamento ou consumo
-medidos demonstrarem que o boundary precisa mudar.
+O M0 ainda inicia o agente manualmente para desenvolvimento. No M1, a GUI pode
+solicitar ao módulo de ciclo de vida que registre/inicie o agente pelo gerenciador
+da sessão do usuário; não mantém o processo filho nem o encerra ao fechar. Os
+detalhes por plataforma e o fallback Linux estão no ADR-004. IPC precisa limitar
+frames, clientes e tempo por solicitação, sem bloquear a coleta. Reavaliar apenas
+se requisitos de continuidade, isolamento ou consumo medidos demonstrarem que o
+boundary precisa mudar.

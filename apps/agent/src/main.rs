@@ -75,6 +75,7 @@ async fn main() -> Result<()> {
             snapshot_receiver,
             shutdown_receiver,
             settings.max_processes_per_response,
+            settings.collection_interval_ms,
             capabilities,
         ) => result,
         // The IPC server owns a separate process lifetime; this signal only stops this agent.

@@ -26,6 +26,7 @@ pub async fn serve(
     snapshots: watch::Receiver<std::sync::Arc<SystemSnapshot>>,
     mut shutdown: watch::Receiver<bool>,
     max_processes_per_response: usize,
+    history_interval_ms: u64,
     capabilities: std::sync::Arc<Vec<Capability>>,
 ) -> Result<()> {
     let listener = create_listener().context("bind the per-user local IPC endpoint")?;
@@ -67,6 +68,7 @@ pub async fn serve(
                             &mut stream,
                             &snapshot,
                             max_processes_per_response,
+                            history_interval_ms,
                             &capabilities,
                         ),
                     )
@@ -97,10 +99,17 @@ async fn handle_connection(
     stream: &mut interprocess::local_socket::tokio::Stream,
     snapshot: &SystemSnapshot,
     max_processes_per_response: usize,
+    history_interval_ms: u64,
     capabilities: &[Capability],
 ) -> io::Result<()> {
     let request: Request = read_message(stream).await?;
-    let response = handle_request(request, snapshot, max_processes_per_response, capabilities);
+    let response = handle_request(
+        request,
+        snapshot,
+        max_processes_per_response,
+        history_interval_ms,
+        capabilities,
+    );
     write_message(stream, &response).await
 }
 
@@ -108,6 +117,7 @@ fn handle_request(
     request: Request,
     snapshot: &SystemSnapshot,
     max_processes_per_response: usize,
+    history_interval_ms: u64,
     capabilities: &[Capability],
 ) -> Response {
     if request.protocol_major != PROTOCOL_MAJOR {
@@ -210,6 +220,7 @@ fn handle_request(
                     cpu_history_percent: snapshot.cpu_history_percent.clone(),
                     memory_history_percent: snapshot.memory_history_percent.clone(),
                     collection_status: snapshot.collection_status.clone(),
+                    history_interval_ms,
                 }),
                 ..Response::default()
             }
@@ -247,10 +258,60 @@ fn create_listener() -> io::Result<LocalSocketListener> {
 
 #[cfg(unix)]
 fn create_listener_at(path: &std::path::Path) -> io::Result<LocalSocketListener> {
+    match create_listener_at_unchecked(path) {
+        Ok(listener) => Ok(listener),
+        Err(error) if error.kind() == io::ErrorKind::AddrInUse => {
+            remove_stale_socket(path)?;
+            create_listener_at_unchecked(path)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(unix)]
+fn create_listener_at_unchecked(path: &std::path::Path) -> io::Result<LocalSocketListener> {
     use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 
     let name = path.to_fs_name::<GenericFilePath>()?;
     ListenerOptions::new().name(name).create_tokio()
+}
+
+#[cfg(unix)]
+fn remove_stale_socket(path: &std::path::Path) -> io::Result<()> {
+    use std::os::unix::fs::FileTypeExt as _;
+
+    match std::os::unix::net::UnixStream::connect(path) {
+        Ok(_stream) => {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "local monitor agent is already listening",
+            ));
+        }
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+            ) => {}
+        Err(error) => return Err(error),
+    }
+
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if !metadata.file_type().is_socket() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "refusing to remove a non-socket IPC endpoint",
+        ));
+    }
+
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(windows)]
@@ -337,6 +398,58 @@ mod tests {
         std::fs::remove_dir(runtime_directory).expect("remove test runtime directory");
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reclaims_a_stale_socket_after_an_agent_crash() {
+        use super::create_listener_at;
+        use std::os::unix::net::UnixListener;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
+        let runtime_directory = std::env::temp_dir().join(format!(
+            "native-system-monitor-stale-socket-test-{}-{id}",
+            std::process::id()
+        ));
+        crate::unix_endpoint::ensure_private_directory(&runtime_directory)
+            .expect("create private test runtime directory");
+        let socket_path = runtime_directory.join("agent.sock");
+
+        let stale_listener = UnixListener::bind(&socket_path).expect("create stale socket");
+        drop(stale_listener);
+        let listener = create_listener_at(&socket_path).expect("replace stale socket");
+        drop(listener);
+
+        std::fs::remove_dir(runtime_directory).expect("remove test runtime directory");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn does_not_remove_an_active_agent_socket() {
+        use super::create_listener_at;
+        use std::os::unix::net::UnixListener;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
+        let runtime_directory = std::env::temp_dir().join(format!(
+            "native-system-monitor-active-socket-test-{}-{id}",
+            std::process::id()
+        ));
+        crate::unix_endpoint::ensure_private_directory(&runtime_directory)
+            .expect("create private test runtime directory");
+        let socket_path = runtime_directory.join("agent.sock");
+        let active_listener = UnixListener::bind(&socket_path).expect("bind active socket");
+
+        let error = create_listener_at(&socket_path).expect_err("preserve active socket");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse);
+        assert!(socket_path.exists());
+        drop(active_listener);
+        std::fs::remove_file(socket_path).expect("remove active socket file");
+        std::fs::remove_dir(runtime_directory).expect("remove test runtime directory");
+    }
+
     #[test]
     fn rejects_incompatible_protocol_major() {
         let response = handle_request(
@@ -347,6 +460,7 @@ mod tests {
             },
             &SystemSnapshot::starting(),
             MAX_PROCESSES_PER_RESPONSE,
+            1_000,
             &[],
         );
 
@@ -381,6 +495,7 @@ mod tests {
             },
             &source,
             MAX_PROCESSES_PER_RESPONSE,
+            1_000,
             &[],
         );
 
@@ -410,15 +525,25 @@ mod tests {
                 },
                 &source,
                 MAX_PROCESSES_PER_RESPONSE,
+                1_000,
                 &[],
             );
 
             let cpu = response
                 .snapshot
+                .as_ref()
                 .expect("snapshot response")
                 .cpu
+                .as_ref()
                 .expect("CPU metrics");
             assert_eq!(cpu.per_core_usage_percent, per_core_usage_percent);
+            assert_eq!(
+                response
+                    .snapshot
+                    .expect("snapshot response")
+                    .history_interval_ms,
+                1_000
+            );
         }
     }
 
@@ -452,6 +577,7 @@ mod tests {
             },
             &source,
             MAX_PROCESSES_PER_RESPONSE,
+            1_000,
             &[],
         );
         let elapsed = started.elapsed();

@@ -3,9 +3,19 @@ import { LineEdit, ListView, VerticalBox } from "std-widgets.slint";
 export struct ProcessRow {
     name: string,
     pid: string,
+    parent-pid: string,
     cpu: string,
     memory: string,
 }
+
+export struct CpuCoreRow {
+    name: string,
+    usage: string,
+    fraction: float,
+}
+
+enum MainPage { overview, processes, performance }
+enum HistoryRange { one-minute, five-minutes }
 
 component MetricPanel inherits Rectangle {
     min-width: 0px;
@@ -16,15 +26,81 @@ component MetricPanel inherits Rectangle {
     background: #19212b;
     border-color: #2c3744;
     border-width: 1px;
-    border-radius: 6px;
+    border-radius: 8px;
 
     VerticalBox {
-        padding: 12px;
-        spacing: 4px;
-        Text { text: title; color: #a6b3c2; font-size: 13px; }
-        Text { text: value; color: accent; font-size: 26px; }
-        Text { text: detail; color: #a6b3c2; font-size: 12px; overflow: elide; }
+        padding: 14px;
+        spacing: 5px;
+        Text { text: title; color: #9eacbd; font-size: 13px; }
+        Text { text: value; color: accent; font-size: 27px; }
+        Text { text: detail; color: #8493a5; font-size: 12px; overflow: elide; }
     }
+}
+
+component NavigationItem inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback activated();
+    height: 42px;
+    border-radius: 6px;
+    background: active ? #263a4c : transparent;
+
+    Text {
+        x: 14px;
+        width: parent.width - 28px;
+        height: parent.height;
+        text: label;
+        color: active ? #eaf3fc : #a6b3c2;
+        font-size: 14px;
+        vertical-alignment: center;
+    }
+    TouchArea { clicked => { root.activated(); } }
+}
+
+component RangeChoice inherits Rectangle {
+    in property <string> label;
+    in property <bool> active;
+    callback activated();
+    width: 72px;
+    height: 30px;
+    border-radius: 5px;
+    background: active ? #28425a : #19212b;
+    border-color: active ? #47749a : #2c3744;
+    border-width: 1px;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: label;
+        color: active ? #edf6ff : #a6b3c2;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    TouchArea { clicked => { root.activated(); } }
+}
+
+component SortHeader inherits Rectangle {
+    in property <string> label;
+    in property <string> key;
+    in property <string> active-key;
+    in property <bool> descending;
+    callback requested(string);
+    min-width: 0px;
+    height: 28px;
+    background: transparent;
+
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.label + (root.active-key == root.key ? (root.descending ? "  ↓" : "  ↑") : "");
+        color: root.active-key == root.key ? #dce9f6 : #9eacbd;
+        font-size: 12px;
+        vertical-alignment: center;
+        horizontal-alignment: root.key == "name" ? left : right;
+        overflow: elide;
+    }
+    TouchArea { clicked => { root.requested(root.key); } }
 }
 
 component ChartPanel inherits Rectangle {
@@ -32,27 +108,80 @@ component ChartPanel inherits Rectangle {
     in property <string> title;
     in property <[float]> points;
     in property <color> accent;
+    in property <string> range-start;
     background: #19212b;
     border-color: #2c3744;
     border-width: 1px;
-    border-radius: 6px;
+    border-radius: 8px;
 
     VerticalBox {
-        padding: 12px;
+        padding: 14px;
         spacing: 8px;
-        Text { text: title; color: #a6b3c2; font-size: 13px; }
-        Rectangle {
-            background: transparent;
+
+        HorizontalLayout {
+            height: 24px;
+            Text { text: title; color: #e4ebf3; font-size: 14px; vertical-alignment: center; }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Text { text: "%"; color: #8b9aae; font-size: 12px; vertical-alignment: center; }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
             vertical-stretch: 1;
-            HorizontalLayout {
-                spacing: 2px;
-                for point in points: Rectangle {
-                    width: 4px;
-                    height: 4px + 92px * point / 100;
-                    background: accent;
-                    border-radius: 2px;
+
+            VerticalBox {
+                width: 34px;
+                Text { text: "100"; color: #8190a2; font-size: 10px; }
+                Rectangle { vertical-stretch: 1; background: transparent; }
+                Text { text: "50"; color: #8190a2; font-size: 10px; }
+                Rectangle { vertical-stretch: 1; background: transparent; }
+                Text { text: "0"; color: #8190a2; font-size: 10px; }
+            }
+
+            Rectangle {
+                background: #121922;
+                border-radius: 4px;
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+
+                if points.length == 0: Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "Aguardando amostras";
+                    color: #8493a5;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                if points.length > 0: HorizontalLayout {
+                    x: 5px;
+                    y: 5px;
+                    width: parent.width - 10px;
+                    height: parent.height - 10px;
+                    spacing: 2px;
+                    for point in points: Rectangle {
+                        min-width: 1px;
+                        horizontal-stretch: 1;
+                        background: transparent;
+                        VerticalBox {
+                            Rectangle { vertical-stretch: 1; background: transparent; }
+                            Rectangle {
+                                height: parent.height * point / 100;
+                                background: accent;
+                                border-radius: 2px;
+                            }
+                        }
+                    }
                 }
             }
+        }
+
+        HorizontalLayout {
+            height: 18px;
+            Text { text: range-start; color: #8190a2; font-size: 10px; }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Text { text: "agora"; color: #8190a2; font-size: 10px; }
         }
     }
 }
@@ -60,166 +189,375 @@ component ChartPanel inherits Rectangle {
 export component MainWindow inherits Window {
     title: "Monitor do Sistema";
     width: 1120px;
-    height: 780px;
+    height: 760px;
     background: #11161d;
 
     in-out property <string> agent-status: "Conectando ao agente…";
+    in-out property <bool> agent-connected: false;
+    in-out property <bool> agent-startup-configured: false;
+    in-out property <string> sample-age: "Aguardando amostra";
     in-out property <string> cpu-value: "—";
     in-out property <string> cpu-status: "Aguardando primeira amostra";
     in-out property <string> memory-value: "—";
     in-out property <string> memory-status: "Aguardando primeira amostra";
     in-out property <string> process-count: "—";
+    in-out property <string> sort-key: "cpu";
+    in-out property <bool> sort-descending: true;
+    in-out property <string> cpu-history-start-label: "início";
+    in-out property <string> memory-history-start-label: "início";
     in-out property <[ProcessRow]> processes: [];
+    in-out property <[CpuCoreRow]> cpu-cores: [];
     in-out property <[float]> cpu-history: [];
     in-out property <[float]> memory-history: [];
+    in-out property <MainPage> active-page: MainPage.overview;
+    in-out property <HistoryRange> history-range: HistoryRange.five-minutes;
     callback filter-edited(string);
+    callback sort-requested(string);
+    callback history-range-selected(string);
+    callback retry-agent();
 
     VerticalBox {
-        padding: 20px;
+        padding: 18px;
         spacing: 14px;
 
         HorizontalLayout {
-            height: 48px;
-            Text {
-                text: "Monitor do Sistema";
-                color: #edf2f7;
-                font-size: 25px;
-                vertical-alignment: center;
-            }
-            Rectangle { horizontal-stretch: 1; background: transparent; }
-            Text {
-                text: root.agent-status;
-                color: #a6b3c2;
-                font-size: 13px;
-                vertical-alignment: center;
-            }
-        }
-
-        HorizontalLayout {
-            height: 110px;
-            spacing: 12px;
-            alignment: stretch;
-
-            Rectangle {
-                min-width: 0px;
-                width: 32.5%;
-                background: transparent;
-                MetricPanel {
-                    title: "CPU";
-                    value: root.cpu-value;
-                    detail: root.cpu-status;
-                    accent: #7db6ff;
-                }
-            }
-            Rectangle {
-                min-width: 0px;
-                width: 32.5%;
-                background: transparent;
-                MetricPanel {
-                    title: "Memória";
-                    value: root.memory-value;
-                    detail: root.memory-status;
-                    accent: #4fc59a;
-                }
-            }
-            Rectangle {
-                min-width: 0px;
-                width: 32.5%;
-                background: transparent;
-                MetricPanel {
-                    title: "Processos";
-                    value: root.process-count;
-                    detail: "visíveis na amostra";
-                    accent: #e8b75b;
-                }
-            }
-        }
-
-        HorizontalLayout {
-            height: 160px;
-            spacing: 12px;
-            alignment: stretch;
-
-            Rectangle {
-                min-width: 0px;
-                width: 49.4%;
-                background: transparent;
-                ChartPanel {
-                    title: "Histórico de CPU";
-                    points: root.cpu-history;
-                    accent: #7db6ff;
-                }
-            }
-            Rectangle {
-                min-width: 0px;
-                width: 49.4%;
-                background: transparent;
-                ChartPanel {
-                    title: "Histórico de memória";
-                    points: root.memory-history;
-                    accent: #4fc59a;
-                }
-            }
-        }
-
-        Rectangle {
-            background: #19212b;
-            border-color: #2c3744;
-            border-width: 1px;
-            border-radius: 6px;
-            vertical-stretch: 1;
+            height: 54px;
+            spacing: 14px;
 
             VerticalBox {
-                padding: 12px;
-                spacing: 8px;
+                width: 220px;
+                spacing: 2px;
+                Text { text: "Monitor do Sistema"; color: #edf2f7; font-size: 23px; }
+                Text { text: "Visibilidade clara do seu computador"; color: #8493a5; font-size: 11px; }
+            }
 
-                HorizontalLayout {
-                    height: 38px;
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+
+            VerticalBox {
+                width: 280px;
+                spacing: 2px;
+                Text {
+                    text: agent-status;
+                    color: agent-connected && agent-startup-configured ? #77d7ad : #f0bd69;
+                    font-size: 12px;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
+                Text {
+                    text: sample-age;
+                    color: #8493a5;
+                    font-size: 11px;
+                    horizontal-alignment: right;
+                }
+            }
+
+            if !agent-connected || !agent-startup-configured: RangeChoice {
+                width: 136px;
+                label: agent-connected ? "Configurar início" : "Tentar conexão";
+                active: false;
+                activated => { root.retry-agent(); }
+            }
+        }
+
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 14px;
+
+            Rectangle {
+                width: 164px;
+                background: #171e27;
+                border-color: #26313d;
+                border-width: 1px;
+                border-radius: 8px;
+
+                VerticalBox {
+                    padding: 10px;
+                    spacing: 6px;
+                    Text { text: "MONITORAMENTO"; color: #718197; font-size: 10px; }
+                    NavigationItem {
+                        label: "Visão geral";
+                        active: root.active-page == MainPage.overview;
+                        activated => { root.active-page = MainPage.overview; }
+                    }
+                    NavigationItem {
+                        label: "Processos";
+                        active: root.active-page == MainPage.processes;
+                        activated => { root.active-page = MainPage.processes; }
+                    }
+                    NavigationItem {
+                        label: "Desempenho";
+                        active: root.active-page == MainPage.performance;
+                        activated => { root.active-page = MainPage.performance; }
+                    }
+                    Rectangle { vertical-stretch: 1; background: transparent; }
                     Text {
-                        text: "Processos";
-                        color: #edf2f7;
-                        font-size: 18px;
-                        vertical-alignment: center;
-                    }
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
-                    LineEdit {
-                        width: 260px;
-                        placeholder-text: "Filtrar por nome ou PID";
-                        input-type: search;
-                        edited(text) => { root.filter-edited(text); }
+                        text: "A coleta continua\ncom a janela fechada";
+                        color: #718197;
+                        font-size: 11px;
+                        wrap: word-wrap;
                     }
                 }
+            }
 
-                HorizontalLayout {
-                    height: 26px;
-                    spacing: 10px;
-                    Text { text: "Nome"; color: #a6b3c2; horizontal-stretch: 1; }
-                    Text { text: "PID"; color: #a6b3c2; width: 90px; horizontal-alignment: right; }
-                    Text { text: "CPU %"; color: #a6b3c2; width: 90px; horizontal-alignment: right; }
-                    Text { text: "RAM MiB"; color: #a6b3c2; width: 100px; horizontal-alignment: right; }
-                }
+            Rectangle {
+                horizontal-stretch: 1;
+                background: transparent;
 
-                ListView {
-                    vertical-stretch: 1;
-                    for process in root.processes: HorizontalLayout {
-                        height: 28px;
+                if root.active-page == MainPage.overview: VerticalBox {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        height: 30px;
+                        Text { text: "Visão geral"; color: #edf2f7; font-size: 19px; }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Text { text: "Atualização contínua"; color: #8493a5; font-size: 11px; vertical-alignment: center; }
+                    }
+
+                    HorizontalLayout {
+                        height: 98px;
                         spacing: 10px;
-                        Rectangle {
-                            background: transparent;
+                        MetricPanel {
                             horizontal-stretch: 1;
-                            Text {
-                                x: 0px;
-                                width: parent.width;
-                                text: process.name;
-                                color: #edf2f7;
-                                horizontal-alignment: left;
-                                vertical-alignment: center;
-                                overflow: elide;
+                            title: "CPU total";
+                            value: root.cpu-value;
+                            detail: root.cpu-status;
+                            accent: #7db6ff;
+                        }
+                        MetricPanel {
+                            horizontal-stretch: 1;
+                            title: "Memória";
+                            value: root.memory-value;
+                            detail: root.memory-status;
+                            accent: #4fc59a;
+                        }
+                        MetricPanel {
+                            horizontal-stretch: 1;
+                            title: "Processos";
+                            value: root.process-count;
+                            detail: "visíveis nesta amostra";
+                            accent: #e8b75b;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        vertical-stretch: 1;
+                        spacing: 12px;
+                        ChartPanel {
+                            horizontal-stretch: 1;
+                            title: "Uso de CPU";
+                            points: root.cpu-history;
+                            accent: #70b5ff;
+                            range-start: root.cpu-history-start-label;
+                        }
+                        ChartPanel {
+                            horizontal-stretch: 1;
+                            title: "Uso de memória";
+                            points: root.memory-history;
+                            accent: #50c99a;
+                            range-start: root.memory-history-start-label;
+                        }
+                    }
+                }
+
+                if root.active-page == MainPage.processes: VerticalBox {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        height: 32px;
+                        Text { text: "Processos"; color: #edf2f7; font-size: 19px; }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Text { text: root.process-count + " visíveis"; color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                    }
+
+                    Rectangle {
+                        background: #19212b;
+                        border-color: #2c3744;
+                        border-width: 1px;
+                        border-radius: 8px;
+                        vertical-stretch: 1;
+
+                        VerticalBox {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                height: 38px;
+                                Text { text: "Lista de processos"; color: #e4ebf3; font-size: 14px; vertical-alignment: center; }
+                                Rectangle { horizontal-stretch: 1; background: transparent; }
+                                LineEdit {
+                                    width: 238px;
+                                    placeholder-text: "Filtrar por nome ou PID";
+                                    input-type: search;
+                                    edited(text) => { root.filter-edited(text); }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                height: 28px;
+                                spacing: 8px;
+                                SortHeader {
+                                    horizontal-stretch: 1;
+                                    label: "Processo";
+                                    key: "name";
+                                    active-key: root.sort-key;
+                                    descending: root.sort-descending;
+                                    requested(key) => { root.sort-requested(key); }
+                                }
+                                SortHeader {
+                                    width: 58px;
+                                    label: "PID";
+                                    key: "pid";
+                                    active-key: root.sort-key;
+                                    descending: root.sort-descending;
+                                    requested(key) => { root.sort-requested(key); }
+                                }
+                                SortHeader {
+                                    width: 58px;
+                                    label: "PPID";
+                                    key: "parent";
+                                    active-key: root.sort-key;
+                                    descending: root.sort-descending;
+                                    requested(key) => { root.sort-requested(key); }
+                                }
+                                SortHeader {
+                                    width: 66px;
+                                    label: "CPU %";
+                                    key: "cpu";
+                                    active-key: root.sort-key;
+                                    descending: root.sort-descending;
+                                    requested(key) => { root.sort-requested(key); }
+                                }
+                                SortHeader {
+                                    width: 78px;
+                                    label: "RAM MiB";
+                                    key: "memory";
+                                    active-key: root.sort-key;
+                                    descending: root.sort-descending;
+                                    requested(key) => { root.sort-requested(key); }
+                                }
+                            }
+
+                            if root.processes.length == 0: Rectangle {
+                                vertical-stretch: 1;
+                                background: transparent;
+                                Text {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    text: root.agent-connected ? "Nenhum processo corresponde ao filtro." : "Aguardando conexão com o agente…";
+                                    color: #8493a5;
+                                    font-size: 13px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            if root.processes.length > 0: ListView {
+                                vertical-stretch: 1;
+                                for process in root.processes: HorizontalLayout {
+                                    height: 32px;
+                                    spacing: 8px;
+                                    Rectangle {
+                                        background: transparent;
+                                        horizontal-stretch: 1;
+                                        Text {
+                                            x: 0px;
+                                            width: parent.width;
+                                            height: parent.height;
+                                            text: process.name;
+                                            color: #e5ebf2;
+                                            font-size: 12px;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    Text { text: process.pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: process.parent-pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: process.cpu; color: #a6b3c2; width: 66px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: process.memory; color: #a6b3c2; width: 78px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                }
                             }
                         }
-                        Text { text: process.pid; color: #a6b3c2; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                        Text { text: process.cpu; color: #a6b3c2; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                        Text { text: process.memory; color: #a6b3c2; width: 100px; horizontal-alignment: right; vertical-alignment: center; }
+                    }
+                }
+
+                if root.active-page == MainPage.performance: VerticalBox {
+                    spacing: 10px;
+
+                    HorizontalLayout {
+                        height: 34px;
+                        Text { text: "Desempenho"; color: #edf2f7; font-size: 19px; }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        RangeChoice {
+                            label: "1 minuto";
+                            active: root.history-range == HistoryRange.one-minute;
+                            activated => {
+                                root.history-range = HistoryRange.one-minute;
+                                root.history-range-selected("one-minute");
+                            }
+                        }
+                        RangeChoice {
+                            label: "5 minutos";
+                            active: root.history-range == HistoryRange.five-minutes;
+                            activated => {
+                                root.history-range = HistoryRange.five-minutes;
+                                root.history-range-selected("five-minutes");
+                            }
+                        }
+                    }
+
+                    ChartPanel {
+                        vertical-stretch: 1;
+                        title: "CPU total";
+                        points: root.cpu-history;
+                        accent: #70b5ff;
+                        range-start: root.cpu-history-start-label;
+                    }
+
+                    ChartPanel {
+                        vertical-stretch: 1;
+                        title: "Memória usada";
+                        points: root.memory-history;
+                        accent: #50c99a;
+                        range-start: root.memory-history-start-label;
+                    }
+
+                    Rectangle {
+                        height: 128px;
+                        background: #19212b;
+                        border-color: #2c3744;
+                        border-width: 1px;
+                        border-radius: 8px;
+                        VerticalBox {
+                            padding: 12px;
+                            spacing: 6px;
+                            Text { text: "CPU por núcleo"; color: #e4ebf3; font-size: 13px; }
+                            if root.cpu-cores.length == 0: Text {
+                                text: "Dados por núcleo indisponíveis nesta amostra.";
+                                color: #8493a5;
+                                font-size: 12px;
+                            }
+                            if root.cpu-cores.length > 0: ListView {
+                                vertical-stretch: 1;
+                                for core in root.cpu-cores: HorizontalLayout {
+                                    height: 22px;
+                                    spacing: 8px;
+                                    Text { text: core.name; color: #a6b3c2; width: 62px; font-size: 11px; vertical-alignment: center; }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        height: 7px;
+                                        background: #10171f;
+                                        border-radius: 4px;
+                                        Rectangle {
+                                            width: parent.width * core.fraction;
+                                            height: parent.height;
+                                            background: #70b5ff;
+                                            border-radius: 4px;
+                                        }
+                                    }
+                                    Text { text: core.usage; color: #a6b3c2; width: 54px; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+                            }
+                        }
                     }
                 }
             }
