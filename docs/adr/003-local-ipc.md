@@ -39,3 +39,22 @@ falha de conexão e tentar novamente na próxima consulta. A implementação Win
 e a negociação de compatibilidade precisam de ensaio antes de declarar IPC
 validado nessa plataforma. Rever limites com testes de latência, payload e
 clientes lentos.
+
+### Extensão M1 — consulta de processos (protocolo 1.2)
+
+O envelope da requisição acrescenta `process_filter`, `process_sort_key` e
+`sort_descending` como campos protobuf aditivos. O agente aplica a busca por nome
+ou PID e a ordenação sobre a lista completa coletada antes de limitar a resposta
+a no máximo 1.000 processos. O filtro aceita até 256 caracteres. A resposta
+mantém o minor do agente; a GUI só presume filtro/ordenação no agente quando a
+resposta anuncia minor 2 ou superior.
+
+Clientes anteriores continuam decodificando as mensagens aditivas. Para uma GUI
+1.2 conectada a um agente anterior a 1.2, a compatibilidade recai na filtragem e
+ordenação local da resposta limitada; portanto, esse fallback não promete achar
+processos que ficaram fora dos 1.000 enviados pelo agente antigo. Instalações
+pareadas na mesma versão mantêm a consulta global no agente.
+
+O benchmark sintético M1 mede filtragem/ordenação de 10.000 processos e
+serialização protobuf da resposta limitada. Essa medição não substitui a medição
+end-to-end da interação e renderização da GUI.

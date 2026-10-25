@@ -16,6 +16,9 @@ message Request {
   uint32 process_limit = 3;
   string sort_by = 4;
   uint32 protocol_minor = 5;
+  string process_filter = 6;
+  optional bool sort_descending = 7;
+  string process_sort_key = 8;
 }
 
 message Response {

@@ -21,6 +21,7 @@ use tracing::{debug, warn};
 
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_PROCESSES_PER_RESPONSE: usize = 1_000;
+const MAX_PROCESS_FILTER_CHARS: usize = 256;
 
 pub async fn serve(
     snapshots: watch::Receiver<std::sync::Arc<SystemSnapshot>>,
@@ -157,25 +158,60 @@ fn handle_request(
             ..Response::default()
         },
         Operation::Snapshot | Operation::Processes => {
-            let mut processes = snapshot.processes.clone();
-            match request.sort_by.as_str() {
-                "memory" => processes.sort_by(|left, right| {
-                    right
-                        .memory_bytes
-                        .cmp(&left.memory_bytes)
-                        .then_with(|| left.identity.pid.cmp(&right.identity.pid))
-                }),
-                "cpu" | "" => processes.sort_by(|left, right| {
-                    compare_cpu_usage(left.cpu_usage_percent, right.cpu_usage_percent)
-                        .then_with(|| left.identity.pid.cmp(&right.identity.pid))
-                }),
-                _ => {
-                    return error_response(
-                        "invalid_sort",
-                        "sort_by must be either cpu or memory".to_owned(),
-                    );
+            let sort_by = if request.process_sort_key.is_empty() {
+                if request.sort_by.is_empty() {
+                    "cpu"
+                } else {
+                    request.sort_by.as_str()
+                }
+            } else {
+                request.process_sort_key.as_str()
+            };
+            if !matches!(
+                sort_by,
+                "cpu" | "memory" | "name" | "pid" | "parent" | "start"
+            ) {
+                return error_response(
+                    "invalid_sort",
+                    "sort_by must be cpu, memory, name, pid, parent, or start".to_owned(),
+                );
+            }
+            if request.process_filter.chars().count() > MAX_PROCESS_FILTER_CHARS {
+                return error_response(
+                    "invalid_filter",
+                    format!("process_filter must be at most {MAX_PROCESS_FILTER_CHARS} characters"),
+                );
+            }
+            let sort_descending = request
+                .sort_descending
+                .unwrap_or(matches!(sort_by, "cpu" | "memory"));
+            let process_filter = request.process_filter.to_lowercase();
+            let mut processes = Vec::with_capacity(snapshot.processes.len());
+            for process in &snapshot.processes {
+                let normalized_name = if !process_filter.is_empty() || sort_by == "name" {
+                    Some(process.name.to_lowercase())
+                } else {
+                    None
+                };
+                let matches_filter = process_filter.is_empty()
+                    || normalized_name
+                        .as_ref()
+                        .is_some_and(|name| name.contains(&process_filter))
+                    || process.identity.pid.to_string().contains(&process_filter);
+                if matches_filter {
+                    processes.push((process, normalized_name));
                 }
             }
+            processes.sort_by(|(left, left_name), (right, right_name)| {
+                compare_processes(
+                    left,
+                    right,
+                    left_name.as_deref(),
+                    right_name.as_deref(),
+                    sort_by,
+                    sort_descending,
+                )
+            });
 
             let limit = if request.process_limit == 0 {
                 100
@@ -188,10 +224,10 @@ fn handle_request(
             let processes = processes
                 .into_iter()
                 .take(limit)
-                .map(|process| WireProcessMetrics {
+                .map(|(process, _normalized_name)| WireProcessMetrics {
                     pid: process.identity.pid,
                     parent_pid: process.parent_pid,
-                    name: process.name,
+                    name: process.name.clone(),
                     cpu_usage_percent: process.cpu_usage_percent,
                     memory_bytes: process.memory_bytes,
                     start_time_unix_seconds: process.identity.start_time_unix_seconds,
@@ -231,9 +267,78 @@ fn handle_request(
     }
 }
 
-fn compare_cpu_usage(left: Option<f32>, right: Option<f32>) -> std::cmp::Ordering {
+fn compare_processes(
+    left: &native_monitor_domain::ProcessMetrics,
+    right: &native_monitor_domain::ProcessMetrics,
+    left_name: Option<&str>,
+    right_name: Option<&str>,
+    sort_by: &str,
+    descending: bool,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    let ordering = match sort_by {
+        "cpu" => compare_optional_cpu(left.cpu_usage_percent, right.cpu_usage_percent, descending),
+        "memory" => compare_order(left.memory_bytes.cmp(&right.memory_bytes), descending),
+        "name" => {
+            let left_name = left_name.unwrap_or_default();
+            let right_name = right_name.unwrap_or_default();
+            compare_order(left_name.cmp(right_name), descending)
+        }
+        "pid" => compare_order(left.identity.pid.cmp(&right.identity.pid), descending),
+        "parent" => compare_optional_order(left.parent_pid, right.parent_pid, descending),
+        "start" => compare_order(
+            left.identity
+                .start_time_unix_seconds
+                .cmp(&right.identity.start_time_unix_seconds),
+            descending,
+        ),
+        _ => Ordering::Equal,
+    };
+
+    ordering
+        .then_with(|| left.identity.pid.cmp(&right.identity.pid))
+        .then_with(|| {
+            left.identity
+                .start_time_unix_seconds
+                .cmp(&right.identity.start_time_unix_seconds)
+        })
+}
+
+fn compare_order(ordering: std::cmp::Ordering, descending: bool) -> std::cmp::Ordering {
+    if descending {
+        ordering.reverse()
+    } else {
+        ordering
+    }
+}
+
+fn compare_optional_order<T: Ord>(
+    left: Option<T>,
+    right: Option<T>,
+    descending: bool,
+) -> std::cmp::Ordering {
     match (left, right) {
-        (Some(left), Some(right)) => right.total_cmp(&left),
+        (Some(left), Some(right)) => compare_order(left.cmp(&right), descending),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+fn compare_optional_cpu(
+    left: Option<f32>,
+    right: Option<f32>,
+    descending: bool,
+) -> std::cmp::Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            if descending {
+                right.total_cmp(&left)
+            } else {
+                left.total_cmp(&right)
+            }
+        }
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => std::cmp::Ordering::Equal,
@@ -369,7 +474,7 @@ fn peer_is_current_user(stream: &interprocess::local_socket::tokio::Stream) -> b
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_PROCESSES_PER_RESPONSE, handle_request};
+    use super::{MAX_PROCESS_FILTER_CHARS, MAX_PROCESSES_PER_RESPONSE, handle_request};
     use crate::{
         PROTOCOL_MAJOR,
         wire::{Operation, Request},
@@ -501,6 +606,256 @@ mod tests {
 
         let snapshot = response.snapshot.expect("snapshot response");
         assert_eq!(snapshot.processes.len(), 1_000);
+    }
+
+    #[test]
+    fn process_filter_is_applied_to_the_full_snapshot_before_the_response_limit() {
+        use native_monitor_domain::{ProcessIdentity, ProcessMetrics};
+
+        let mut source = SystemSnapshot::starting();
+        for pid in 1..=1_500 {
+            source.processes.push(ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid,
+                    start_time_unix_seconds: u64::from(pid),
+                },
+                parent_pid: None,
+                name: if pid == 1 {
+                    "Needle Process".to_owned()
+                } else {
+                    format!("process-{pid}")
+                },
+                cpu_usage_percent: Some(pid as f32),
+                memory_bytes: 0,
+            });
+        }
+
+        let response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                operation: Operation::Processes as i32,
+                process_limit: 1,
+                sort_by: "cpu".to_owned(),
+                process_filter: "NEEDLE".to_owned(),
+                ..Request::default()
+            },
+            &source,
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+
+        let processes = response.snapshot.expect("snapshot response").processes;
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].pid, 1);
+    }
+
+    #[test]
+    fn process_filter_matches_pid_text() {
+        use native_monitor_domain::{ProcessIdentity, ProcessMetrics};
+
+        let mut source = SystemSnapshot::starting();
+        source.processes = vec![
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 12,
+                    start_time_unix_seconds: 1,
+                },
+                parent_pid: None,
+                name: "worker".to_owned(),
+                cpu_usage_percent: Some(0.0),
+                memory_bytes: 0,
+            },
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 21,
+                    start_time_unix_seconds: 1,
+                },
+                parent_pid: None,
+                name: "worker".to_owned(),
+                cpu_usage_percent: Some(0.0),
+                memory_bytes: 0,
+            },
+        ];
+
+        let response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                operation: Operation::Processes as i32,
+                process_limit: 10,
+                sort_by: "cpu".to_owned(),
+                process_filter: "21".to_owned(),
+                ..Request::default()
+            },
+            &source,
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+
+        let processes = response.snapshot.expect("snapshot response").processes;
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].pid, 21);
+    }
+
+    #[test]
+    fn rejects_process_filters_above_the_character_limit() {
+        let response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                operation: Operation::Processes as i32,
+                process_filter: "x".repeat(MAX_PROCESS_FILTER_CHARS + 1),
+                ..Request::default()
+            },
+            &SystemSnapshot::starting(),
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+
+        assert_eq!(response.error_code, "invalid_filter");
+    }
+
+    #[test]
+    #[ignore = "manual performance acceptance check; run in release mode"]
+    fn filter_sort_10k_processes_p95() {
+        use native_monitor_domain::{ProcessIdentity, ProcessMetrics};
+        use prost::Message as _;
+        use std::time::{Duration, Instant};
+
+        const PROCESS_COUNT: u32 = 10_000;
+        const WARMUP_SAMPLES: usize = 10;
+        const MEASURED_SAMPLES: usize = 100;
+        const ACCEPTANCE_LIMIT: Duration = Duration::from_millis(150);
+
+        let mut source = SystemSnapshot::starting();
+        source.processes.reserve(PROCESS_COUNT as usize);
+        for pid in 1..=PROCESS_COUNT {
+            source.processes.push(ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid,
+                    start_time_unix_seconds: u64::from(pid),
+                },
+                parent_pid: Some(pid / 2),
+                name: format!("process-{pid}"),
+                cpu_usage_percent: Some((pid % 10_000) as f32 / 100.0),
+                memory_bytes: u64::from(pid) * 4_096,
+            });
+        }
+        let request = Request {
+            protocol_major: PROTOCOL_MAJOR,
+            operation: Operation::Processes as i32,
+            process_limit: MAX_PROCESSES_PER_RESPONSE as u32,
+            sort_by: "cpu".to_owned(),
+            process_sort_key: "memory".to_owned(),
+            sort_descending: Some(true),
+            process_filter: "process-9".to_owned(),
+            ..Request::default()
+        };
+
+        for _ in 0..WARMUP_SAMPLES {
+            let response = handle_request(
+                request.clone(),
+                &source,
+                MAX_PROCESSES_PER_RESPONSE,
+                1_000,
+                &[],
+            );
+            assert_eq!(
+                response
+                    .snapshot
+                    .as_ref()
+                    .expect("snapshot response")
+                    .processes
+                    .len(),
+                MAX_PROCESSES_PER_RESPONSE
+            );
+            let _payload = response.encode_to_vec();
+        }
+
+        let mut samples = Vec::with_capacity(MEASURED_SAMPLES);
+        for _ in 0..MEASURED_SAMPLES {
+            let started = Instant::now();
+            let response = handle_request(
+                request.clone(),
+                &source,
+                MAX_PROCESSES_PER_RESPONSE,
+                1_000,
+                &[],
+            );
+            assert_eq!(
+                response
+                    .snapshot
+                    .as_ref()
+                    .expect("snapshot response")
+                    .processes
+                    .len(),
+                MAX_PROCESSES_PER_RESPONSE
+            );
+            let _payload = response.encode_to_vec();
+            samples.push(started.elapsed());
+        }
+        samples.sort_unstable();
+
+        let p95_index = (MEASURED_SAMPLES * 95).div_ceil(100) - 1;
+        let p95 = samples[p95_index];
+        println!(
+            "server query + protobuf encode: processes={PROCESS_COUNT}, filter=process-9, sort=memory desc, samples={MEASURED_SAMPLES}, p95={p95:?}, max={:?}",
+            samples[MEASURED_SAMPLES - 1]
+        );
+        assert!(
+            p95 <= ACCEPTANCE_LIMIT,
+            "server query p95 {p95:?} exceeded {ACCEPTANCE_LIMIT:?}"
+        );
+    }
+
+    #[test]
+    fn process_sort_is_applied_to_the_full_snapshot_before_the_response_limit() {
+        use native_monitor_domain::{ProcessIdentity, ProcessMetrics};
+
+        let mut source = SystemSnapshot::starting();
+        source.processes = vec![
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 1,
+                    start_time_unix_seconds: 1,
+                },
+                parent_pid: None,
+                name: "Zulu".to_owned(),
+                cpu_usage_percent: Some(1.0),
+                memory_bytes: 100,
+            },
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 2,
+                    start_time_unix_seconds: 2,
+                },
+                parent_pid: None,
+                name: "alpha".to_owned(),
+                cpu_usage_percent: Some(1.0),
+                memory_bytes: 100,
+            },
+        ];
+
+        let response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                operation: Operation::Processes as i32,
+                process_limit: 1,
+                sort_by: "cpu".to_owned(),
+                sort_descending: Some(false),
+                process_sort_key: "name".to_owned(),
+                ..Request::default()
+            },
+            &source,
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+
+        let processes = response.snapshot.expect("snapshot response").processes;
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].pid, 2);
     }
 
     #[test]

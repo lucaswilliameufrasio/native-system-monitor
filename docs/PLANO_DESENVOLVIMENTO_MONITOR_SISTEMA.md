@@ -622,6 +622,23 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 | Rodar 24h de agent e 8h de UI | sem crescimento monotônico significativo de RSS/leaks | soak + hotplug + sleep/wake |
 | Startup/resume com GPU driver ausente | restante do sistema continua e explica ausência | injeção de falhas por backend |
 
+Para a consulta M1 de 10 mil processos, o teste manual de release usa fixture
+determinística, 10 amostras de aquecimento e 100 medidas de filtragem/ordenação
+no agente mais a codificação protobuf dos até 1.000 resultados. A fixture gera
+10.000 processos; `process-9` corresponde a 1.111 e a resposta é limitada a 1.000.
+Esse número é uma evidência do caminho agente/IPC, não uma medição de pintura da
+GUI; o aceite
+de p95 até a UI responsiva ainda requer profiling/renderização nativa e os testes
+visuais/redimensionáveis previstos para cada OS V1.
+
+**Medição local (2026-10-24):** três execuções release independentes do teste
+`server::tests::filter_sort_10k_processes_p95`, cada uma com 10 aquecimentos e
+100 amostras. O p95 do caminho agente + codificação protobuf foi,
+respectivamente, **0,724 ms**, **0,685 ms** e **0,959 ms**; os máximos por
+execução foram 0,868 ms, 0,730 ms e 1,314 ms. Ambiente: Linux x86_64, kernel
+7.2.8-2-cachyos, Rust 1.98.1, Intel Core i5-8265U. Isso passa o orçamento do
+caminho medido, mas não altera a ressalva acima sobre o p95 end-to-end da UI.
+
 **Comparações:** Windows 11 Task Manager, macOS Activity Monitor e alternativas Linux (`gnome-system-monitor`, `mission-center`, `btop` para cenários representativos). Comparar carga da própria ferramenta sob refresh equivalente; não comparar números de memória com ferramentas que usam definições diferentes sem documentar.
 
 **Cenários de carga:** idle estável, compilação pesada, 10k processos sintéticos, SSD sob fio de leitura/gravação controlado sem desgaste excessivo, tráfego de rede controlado em loopback, GPU benchmark apropriado/curto, troca de bateria/tomada, tela bloqueada, múltiplos monitores, high DPI, hotplug GPU/USB quando possível e simulador de driver ausente.

@@ -75,6 +75,9 @@ mod tests {
             operation: 3,
             process_limit: 25,
             sort_by: "cpu".to_owned(),
+            process_filter: "browser".to_owned(),
+            sort_descending: Some(true),
+            process_sort_key: "name".to_owned(),
         };
         let (mut sender, mut receiver) = tokio::io::duplex(128);
 

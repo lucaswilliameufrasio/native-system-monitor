@@ -14,7 +14,9 @@ use tracing_subscriber::EnvFilter;
 slint::include_modules!();
 
 const MAX_PROCESS_ROWS: usize = 1_000;
+const MAX_PROCESS_FILTER_CHARS: usize = 256;
 const MAX_CHART_POINTS: usize = 72;
+const PROCESS_QUERY_PROTOCOL_MINOR: u32 = 2;
 const ONE_MINUTE_MS: u64 = 60_000;
 const FIVE_MINUTES_MS: u64 = 300_000;
 
@@ -73,6 +75,7 @@ impl Default for ProcessSort {
 struct UiPreferences {
     filter: String,
     sort: ProcessSort,
+    selected_process_key: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -82,8 +85,16 @@ fn main() -> Result<()> {
     let preferences = Arc::new(Mutex::new(UiPreferences::default()));
     let filter_preferences = Arc::clone(&preferences);
     window.on_filter_edited(move |text| match filter_preferences.lock() {
-        Ok(mut preferences) => preferences.filter = text.to_lowercase(),
+        Ok(mut preferences) => {
+            preferences.filter = text.chars().take(MAX_PROCESS_FILTER_CHARS).collect();
+        }
         Err(error) => warn!(%error, "process filter state is unavailable"),
+    });
+
+    let selection_preferences = Arc::clone(&preferences);
+    window.on_process_selected(move |key| match selection_preferences.lock() {
+        Ok(mut preferences) => preferences.selected_process_key = Some(key.to_string()),
+        Err(error) => warn!(%error, "selected process state is unavailable"),
     });
 
     let sort_preferences = Arc::clone(&preferences);
@@ -176,7 +187,24 @@ fn main() -> Result<()> {
             let mut startup_configured = false;
 
             while !worker_stop.load(Ordering::Acquire) {
-                let response = runtime.block_on(client::request(Operation::Snapshot, 1_000, "cpu"));
+                let (filter, sort, selected_process_key) = match worker_preferences.lock() {
+                    Ok(preferences) => (
+                        preferences.filter.clone(),
+                        preferences.sort,
+                        preferences.selected_process_key.clone(),
+                    ),
+                    Err(error) => {
+                        warn!(%error, "could not read process table preferences");
+                        (String::new(), ProcessSort::default(), None)
+                    }
+                };
+                let response = runtime.block_on(client::request_with_process_query(
+                    Operation::Snapshot,
+                    MAX_PROCESS_ROWS as u32,
+                    sort.key.label(),
+                    Some(sort.descending),
+                    &filter,
+                ));
                 let connected = response.is_ok();
                 let retry = retry_for_worker.swap(false, Ordering::AcqRel);
 
@@ -208,26 +236,44 @@ fn main() -> Result<()> {
                 match response {
                     Ok(response) => {
                         let status = response.status;
+                        let supports_server_process_query =
+                            response.protocol_minor >= PROCESS_QUERY_PROTOCOL_MINOR;
                         if let Some(snapshot) = response.snapshot {
-                            let preferences = match worker_preferences.lock() {
-                                Ok(preferences) => (preferences.filter.clone(), preferences.sort),
-                                Err(error) => {
-                                    warn!(%error, "could not read process table preferences");
-                                    (String::new(), ProcessSort::default())
-                                }
-                            };
-
-                            let mut processes = snapshot
-                                .processes
-                                .into_iter()
-                                .filter(|process| {
-                                    preferences.0.is_empty()
-                                        || process.name.to_lowercase().contains(&preferences.0)
-                                        || process.pid.to_string().contains(&preferences.0)
-                                })
-                                .collect::<Vec<_>>();
-                            sort_processes(&mut processes, preferences.1);
+                            let total_memory_bytes = snapshot
+                                .memory
+                                .as_ref()
+                                .and_then(|memory| memory.total_bytes);
+                            let now_unix_ms = unix_time_ms();
+                            let normalized_filter = filter.to_lowercase();
+                            let mut processes = snapshot.processes;
+                            if !supports_server_process_query && !normalized_filter.is_empty() {
+                                processes.retain(|process| {
+                                    process.name.to_lowercase().contains(&normalized_filter)
+                                        || process.pid.to_string().contains(&normalized_filter)
+                                });
+                            }
+                            if !supports_server_process_query {
+                                sort_processes(&mut processes, sort);
+                            }
                             processes.truncate(MAX_PROCESS_ROWS);
+
+                            let selected_process = selected_process_key
+                                .as_deref()
+                                .and_then(|key| {
+                                    processes
+                                        .iter()
+                                        .find(|process| process_identity_key(process) == key)
+                                })
+                                .map(|process| {
+                                    process_row(process, total_memory_bytes, now_unix_ms)
+                                });
+                            if selected_process_key.is_some()
+                                && selected_process.is_none()
+                                && let Ok(mut preferences) = worker_preferences.lock()
+                                && preferences.selected_process_key == selected_process_key
+                            {
+                                preferences.selected_process_key = None;
+                            }
 
                             let cpu_value = snapshot
                                 .cpu
@@ -240,7 +286,7 @@ fn main() -> Result<()> {
                                 .as_ref()
                                 .map(|cpu| cpu.status.clone())
                                 .unwrap_or_else(|| "indisponível".to_owned());
-                            let memory_value = memory_summary(
+                            let (memory_value, memory_usage) = memory_summary(
                                 snapshot
                                     .memory
                                     .as_ref()
@@ -253,8 +299,26 @@ fn main() -> Result<()> {
                             let memory_status = snapshot
                                 .memory
                                 .as_ref()
-                                .map(|memory| memory.status.clone())
+                                .map(|memory| metric_status_label(memory.status.as_str()))
                                 .unwrap_or_else(|| "indisponível".to_owned());
+                            let memory_status = if memory_value == "—" {
+                                if memory_status == "Disponível" {
+                                    memory_usage
+                                } else {
+                                    memory_status
+                                }
+                            } else {
+                                format!("{memory_usage} · {memory_status}")
+                            };
+                            let (swap_value, swap_status) = snapshot
+                                .memory
+                                .as_ref()
+                                .map(|memory| {
+                                    swap_summary(memory.swap_used_bytes, memory.swap_total_bytes)
+                                })
+                                .unwrap_or_else(|| {
+                                    ("—".to_owned(), "Indisponível nesta amostra".to_owned())
+                                });
                             let selected_window = worker_history_window.load(Ordering::Acquire);
                             let (cpu_history, cpu_start_label) = select_history(
                                 &snapshot.cpu_history_percent,
@@ -287,7 +351,16 @@ fn main() -> Result<()> {
                                 })
                                 .unwrap_or_default();
                             let captured_at = snapshot.captured_at_unix_ms;
-                            let rows = processes.into_iter().map(process_row).collect::<Vec<_>>();
+                            let selected_process_key = selected_process
+                                .as_ref()
+                                .map(|process| process.key.clone())
+                                .unwrap_or_default();
+                            let rows = processes
+                                .iter()
+                                .map(|process| {
+                                    process_row(process, total_memory_bytes, now_unix_ms)
+                                })
+                                .collect::<Vec<_>>();
                             let agent_status = lifecycle_status(
                                 status.as_str(),
                                 startup_mode,
@@ -311,8 +384,25 @@ fn main() -> Result<()> {
                                 window.set_cpu_status(SharedString::from(cpu_status));
                                 window.set_memory_value(SharedString::from(memory_value));
                                 window.set_memory_status(SharedString::from(memory_status));
+                                window.set_swap_value(SharedString::from(swap_value));
+                                window.set_swap_status(SharedString::from(swap_status));
                                 window
                                     .set_process_count(SharedString::from(rows.len().to_string()));
+                                window.set_selected_process_key(selected_process_key);
+                                if let Some(process) = selected_process {
+                                    window.set_has_selected_process(true);
+                                    window.set_selected_process_name(process.name);
+                                    window.set_selected_process_pid(process.pid);
+                                    window.set_selected_process_parent_pid(process.parent_pid);
+                                    window.set_selected_process_started(process.started);
+                                    window.set_selected_process_cpu(process.cpu);
+                                    window.set_selected_process_memory(process.memory);
+                                    window.set_selected_process_memory_percent(
+                                        process.memory_percent,
+                                    );
+                                } else {
+                                    clear_selected_process(&window);
+                                }
                                 window.set_processes(ModelRc::new(VecModel::from(rows)));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(cpu_cores)));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(cpu_history)));
@@ -346,10 +436,16 @@ fn main() -> Result<()> {
                                 window
                                     .set_cpu_status(SharedString::from("Sem conexão com o agente"));
                                 window.set_memory_value(SharedString::from("—"));
+                                window.set_swap_value(SharedString::from("—"));
                                 window.set_memory_status(SharedString::from(
                                     "Sem conexão com o agente",
                                 ));
+                                window.set_swap_status(SharedString::from(
+                                    "Sem conexão com o agente",
+                                ));
                                 window.set_process_count(SharedString::from("—"));
+                                window.set_selected_process_key(SharedString::from(""));
+                                clear_selected_process(&window);
                                 window.set_processes(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(Vec::new())));
@@ -400,9 +496,18 @@ fn discover_agent_executable() -> Result<PathBuf> {
         .with_context(|| format!("resolve agent executable path {}", agent_path.display()))
 }
 
-fn process_row(process: ProcessMetrics) -> ProcessRow {
+fn process_identity_key(process: &ProcessMetrics) -> String {
+    format!("{}:{}", process.pid, process.start_time_unix_seconds)
+}
+
+fn process_row(
+    process: &ProcessMetrics,
+    total_memory_bytes: Option<u64>,
+    now_unix_ms: u64,
+) -> ProcessRow {
     ProcessRow {
-        name: SharedString::from(process.name),
+        key: SharedString::from(process_identity_key(process)),
+        name: SharedString::from(process.name.clone()),
         pid: SharedString::from(process.pid.to_string()),
         parent_pid: SharedString::from(
             process
@@ -410,6 +515,10 @@ fn process_row(process: ProcessMetrics) -> ProcessRow {
                 .map(|pid| pid.to_string())
                 .unwrap_or_else(|| "—".to_owned()),
         ),
+        started: SharedString::from(process_start_age_label(
+            process.start_time_unix_seconds,
+            now_unix_ms / 1_000,
+        )),
         cpu: SharedString::from(
             process
                 .cpu_usage_percent
@@ -420,7 +529,45 @@ fn process_row(process: ProcessMetrics) -> ProcessRow {
             "{:.1}",
             process.memory_bytes as f64 / (1024.0 * 1024.0)
         )),
+        memory_percent: SharedString::from(
+            memory_percentage(process.memory_bytes, total_memory_bytes)
+                .map(|percentage| format!("{percentage:.1}%"))
+                .unwrap_or_else(|| "—".to_owned()),
+        ),
     }
+}
+
+fn memory_percentage(used_bytes: u64, total_bytes: Option<u64>) -> Option<f64> {
+    let total_bytes = total_bytes.filter(|total| *total > 0)?;
+    Some(used_bytes as f64 / total_bytes as f64 * 100.0)
+}
+
+fn process_start_age_label(start_time_unix_seconds: u64, now_unix_seconds: u64) -> String {
+    if start_time_unix_seconds == 0 {
+        return "indisponível".to_owned();
+    }
+
+    let age_seconds = now_unix_seconds.saturating_sub(start_time_unix_seconds);
+    if age_seconds < 60 {
+        format!("há {age_seconds} s")
+    } else if age_seconds < 3_600 {
+        format!("há {} min", age_seconds / 60)
+    } else if age_seconds < 86_400 {
+        format!("há {} h", age_seconds / 3_600)
+    } else {
+        format!("há {} d", age_seconds / 86_400)
+    }
+}
+
+fn clear_selected_process(window: &MainWindow) {
+    window.set_has_selected_process(false);
+    window.set_selected_process_name(SharedString::from(""));
+    window.set_selected_process_pid(SharedString::from("—"));
+    window.set_selected_process_parent_pid(SharedString::from("—"));
+    window.set_selected_process_started(SharedString::from("—"));
+    window.set_selected_process_cpu(SharedString::from("—"));
+    window.set_selected_process_memory(SharedString::from("—"));
+    window.set_selected_process_memory_percent(SharedString::from("—"));
 }
 
 fn sort_processes(processes: &mut [ProcessMetrics], sort: ProcessSort) {
@@ -443,7 +590,12 @@ fn sort_processes(processes: &mut [ProcessMetrics], sort: ProcessSort) {
                 compare_order(left.memory_bytes.cmp(&right.memory_bytes), sort.descending)
             }
         };
-        ordering.then_with(|| left.pid.cmp(&right.pid))
+        ordering
+            .then_with(|| left.pid.cmp(&right.pid))
+            .then_with(|| {
+                left.start_time_unix_seconds
+                    .cmp(&right.start_time_unix_seconds)
+            })
     });
 }
 
@@ -487,15 +639,40 @@ fn compare_optional_cpu(
     }
 }
 
-fn memory_summary(used_bytes: Option<u64>, total_bytes: Option<u64>) -> String {
+fn memory_summary(used_bytes: Option<u64>, total_bytes: Option<u64>) -> (String, String) {
     match (used_bytes, total_bytes.filter(|total| *total > 0)) {
         (Some(used), Some(total)) => {
             let used_gib = used as f64 / (1024.0 * 1024.0 * 1024.0);
             let total_gib = total as f64 / (1024.0 * 1024.0 * 1024.0);
             let percentage = used as f64 / total as f64 * 100.0;
-            format!("{used_gib:.1} / {total_gib:.1} GiB · {percentage:.1}%")
+            (
+                format!("{used_gib:.1} / {total_gib:.1} GiB"),
+                format!("{percentage:.1}% utilizado"),
+            )
         }
-        _ => "—".to_owned(),
+        _ => ("—".to_owned(), "Indisponível nesta amostra".to_owned()),
+    }
+}
+
+fn swap_summary(used_bytes: Option<u64>, total_bytes: Option<u64>) -> (String, String) {
+    match (used_bytes, total_bytes) {
+        (Some(0), Some(0)) => ("Sem swap".to_owned(), "Nenhuma área configurada".to_owned()),
+        (Some(used), Some(total)) if total > 0 => {
+            let (value, percentage) = memory_summary(Some(used), Some(total));
+            (value, format!("{percentage} · disponível"))
+        }
+        _ => ("—".to_owned(), "Indisponível nesta amostra".to_owned()),
+    }
+}
+
+fn metric_status_label(status: &str) -> String {
+    match status {
+        "ok" => "Disponível".to_owned(),
+        "warming_up" => "Aquecendo".to_owned(),
+        "unsupported" => "Não suportado".to_owned(),
+        "temporarily_unavailable" => "Temporariamente indisponível".to_owned(),
+        "error" => "Erro".to_owned(),
+        other => other.to_owned(),
     }
 }
 
@@ -613,8 +790,9 @@ fn initialize_logging() {
 mod tests {
     use super::{
         FIVE_MINUTES_MS, ONE_MINUTE_MS, ProcessSort, SortKey, compare_optional_cpu, downsample_max,
-        lifecycle_status, memory_summary, sample_age_label, select_history, sort_processes,
-        unavailable_status,
+        lifecycle_status, memory_percentage, memory_summary, metric_status_label,
+        process_identity_key, process_start_age_label, sample_age_label, select_history,
+        sort_processes, swap_summary, unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
@@ -660,11 +838,68 @@ mod tests {
 
     #[test]
     fn memory_summary_does_not_invent_missing_values() {
-        assert_eq!(memory_summary(None, Some(8_000)), "—");
         assert_eq!(
-            memory_summary(Some(4_000), Some(8_000)),
-            "0.0 / 0.0 GiB · 50.0%"
+            memory_summary(None, Some(8 * 1024 * 1024 * 1024)),
+            ("—".to_owned(), "Indisponível nesta amostra".to_owned())
         );
+        assert_eq!(
+            memory_summary(Some(4 * 1024 * 1024 * 1024), Some(8 * 1024 * 1024 * 1024)),
+            ("4.0 / 8.0 GiB".to_owned(), "50.0% utilizado".to_owned())
+        );
+    }
+
+    #[test]
+    fn memory_percentage_preserves_missing_and_zero_total_states() {
+        assert_eq!(memory_percentage(1_024, None), None);
+        assert_eq!(memory_percentage(1_024, Some(0)), None);
+        assert_eq!(memory_percentage(1_024, Some(4_096)), Some(25.0));
+    }
+
+    #[test]
+    fn swap_summary_distinguishes_missing_from_unconfigured_swap() {
+        assert_eq!(
+            swap_summary(Some(0), Some(0)),
+            ("Sem swap".to_owned(), "Nenhuma área configurada".to_owned())
+        );
+        assert_eq!(
+            swap_summary(None, None),
+            ("—".to_owned(), "Indisponível nesta amostra".to_owned())
+        );
+        assert_eq!(
+            swap_summary(Some(1_073_741_824), Some(2_147_483_648)),
+            (
+                "1.0 / 2.0 GiB".to_owned(),
+                "50.0% utilizado · disponível".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn metric_status_is_localized_for_overview_cards() {
+        assert_eq!(metric_status_label("ok"), "Disponível");
+        assert_eq!(metric_status_label("warming_up"), "Aquecendo");
+        assert_eq!(metric_status_label("unexpected"), "unexpected");
+    }
+
+    #[test]
+    fn process_selection_identity_distinguishes_reused_pids() {
+        let original = process(42, "worker", Some(0.0), 100, None);
+        let mut replacement = original.clone();
+        replacement.start_time_unix_seconds = 200;
+
+        assert_ne!(
+            process_identity_key(&original),
+            process_identity_key(&replacement)
+        );
+        assert_eq!(process_identity_key(&original), "42:1");
+    }
+
+    #[test]
+    fn process_start_age_shows_relative_time_and_missing_values() {
+        assert_eq!(process_start_age_label(0, 10_000), "indisponível");
+        assert_eq!(process_start_age_label(9_970, 10_000), "há 30 s");
+        assert_eq!(process_start_age_label(9_000, 10_000), "há 16 min");
+        assert_eq!(process_start_age_label(1_000, 100), "há 0 s");
     }
 
     #[test]

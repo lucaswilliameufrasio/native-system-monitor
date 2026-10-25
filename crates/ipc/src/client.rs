@@ -8,14 +8,33 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_PROCESS_FILTER_CHARS: usize = 256;
 
 pub async fn request(operation: Operation, process_limit: u32, sort_by: &str) -> Result<Response> {
+    request_with_process_query(operation, process_limit, sort_by, None, "").await
+}
+
+pub async fn request_with_process_query(
+    operation: Operation,
+    process_limit: u32,
+    sort_by: &str,
+    sort_descending: Option<bool>,
+    process_filter: &str,
+) -> Result<Response> {
+    if process_filter.chars().count() > MAX_PROCESS_FILTER_CHARS {
+        bail!("process filter must be at most {MAX_PROCESS_FILTER_CHARS} characters");
+    }
+
+    let legacy_sort_by = if sort_by == "memory" { "memory" } else { "cpu" };
     let request = Request {
         protocol_major: PROTOCOL_MAJOR,
         protocol_minor: PROTOCOL_MINOR,
         operation: operation as i32,
         process_limit,
-        sort_by: sort_by.to_owned(),
+        sort_by: legacy_sort_by.to_owned(),
+        process_filter: process_filter.to_owned(),
+        sort_descending,
+        process_sort_key: sort_by.to_owned(),
     };
 
     let response: Response = timeout(REQUEST_TIMEOUT, async {

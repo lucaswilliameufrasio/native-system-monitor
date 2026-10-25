@@ -1,11 +1,14 @@
 import { LineEdit, ListView, VerticalBox } from "std-widgets.slint";
 
 export struct ProcessRow {
+    key: string,
     name: string,
     pid: string,
     parent-pid: string,
+    started: string,
     cpu: string,
     memory: string,
+    memory-percent: string,
 }
 
 export struct CpuCoreRow {
@@ -32,7 +35,7 @@ component MetricPanel inherits Rectangle {
         padding: 14px;
         spacing: 5px;
         Text { text: title; color: #9eacbd; font-size: 13px; }
-        Text { text: value; color: accent; font-size: 27px; }
+        Text { text: value; color: accent; font-size: 22px; }
         Text { text: detail; color: #8493a5; font-size: 12px; overflow: elide; }
     }
 }
@@ -200,11 +203,22 @@ export component MainWindow inherits Window {
     in-out property <string> cpu-status: "Aguardando primeira amostra";
     in-out property <string> memory-value: "—";
     in-out property <string> memory-status: "Aguardando primeira amostra";
+    in-out property <string> swap-value: "—";
+    in-out property <string> swap-status: "Aguardando primeira amostra";
     in-out property <string> process-count: "—";
     in-out property <string> sort-key: "cpu";
     in-out property <bool> sort-descending: true;
     in-out property <string> cpu-history-start-label: "início";
     in-out property <string> memory-history-start-label: "início";
+    in-out property <string> selected-process-key: "";
+    in-out property <bool> has-selected-process: false;
+    in-out property <string> selected-process-name: "";
+    in-out property <string> selected-process-pid: "—";
+    in-out property <string> selected-process-parent-pid: "—";
+    in-out property <string> selected-process-started: "—";
+    in-out property <string> selected-process-cpu: "—";
+    in-out property <string> selected-process-memory: "—";
+    in-out property <string> selected-process-memory-percent: "—";
     in-out property <[ProcessRow]> processes: [];
     in-out property <[CpuCoreRow]> cpu-cores: [];
     in-out property <[float]> cpu-history: [];
@@ -213,6 +227,7 @@ export component MainWindow inherits Window {
     in-out property <HistoryRange> history-range: HistoryRange.five-minutes;
     callback filter-edited(string);
     callback sort-requested(string);
+    callback process-selected(string);
     callback history-range-selected(string);
     callback retry-agent();
 
@@ -332,6 +347,13 @@ export component MainWindow inherits Window {
                         }
                         MetricPanel {
                             horizontal-stretch: 1;
+                            title: "Swap";
+                            value: root.swap-value;
+                            detail: root.swap-status;
+                            accent: #b58cff;
+                        }
+                        MetricPanel {
+                            horizontal-stretch: 1;
                             title: "Processos";
                             value: root.process-count;
                             detail: "visíveis nesta amostra";
@@ -428,12 +450,46 @@ export component MainWindow inherits Window {
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
-                                    width: 78px;
-                                    label: "RAM MiB";
+                                    width: 136px;
+                                    label: "RAM MiB / %";
                                     key: "memory";
                                     active-key: root.sort-key;
                                     descending: root.sort-descending;
                                     requested(key) => { root.sort-requested(key); }
+                                }
+                            }
+
+                            Rectangle {
+                                height: 54px;
+                                background: #121922;
+                                border-radius: 5px;
+                                if root.has-selected-process: VerticalBox {
+                                    x: 10px;
+                                    y: 6px;
+                                    width: parent.width - 20px;
+                                    height: parent.height - 12px;
+                                    spacing: 3px;
+                                    Text {
+                                        text: root.selected-process-name + " · PID " + root.selected-process-pid + " · PPID " + root.selected-process-parent-pid;
+                                        color: #e4ebf3;
+                                        font-size: 12px;
+                                        overflow: elide;
+                                    }
+                                    Text {
+                                        text: "Início: " + root.selected-process-started + " · CPU " + root.selected-process-cpu + " · RAM " + root.selected-process-memory + " MiB (" + root.selected-process-memory-percent + ")";
+                                        color: #9eacbd;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+                                if !root.has-selected-process: Text {
+                                    x: 10px;
+                                    width: parent.width - 20px;
+                                    height: parent.height;
+                                    text: "Selecione um processo para ver PID, início e consumo.";
+                                    color: #8493a5;
+                                    font-size: 11px;
+                                    vertical-alignment: center;
                                 }
                             }
 
@@ -453,27 +509,31 @@ export component MainWindow inherits Window {
 
                             if root.processes.length > 0: ListView {
                                 vertical-stretch: 1;
-                                for process in root.processes: HorizontalLayout {
+                                for process in root.processes: Rectangle {
                                     height: 32px;
-                                    spacing: 8px;
-                                    Rectangle {
-                                        background: transparent;
-                                        horizontal-stretch: 1;
-                                        Text {
-                                            x: 0px;
-                                            width: parent.width;
-                                            height: parent.height;
-                                            text: process.name;
-                                            color: #e5ebf2;
-                                            font-size: 12px;
-                                            vertical-alignment: center;
-                                            overflow: elide;
+                                    background: process.key == root.selected-process-key ? #263a4c : transparent;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Rectangle {
+                                            background: transparent;
+                                            horizontal-stretch: 1;
+                                            Text {
+                                                x: 0px;
+                                                width: parent.width;
+                                                height: parent.height;
+                                                text: process.name;
+                                                color: #e5ebf2;
+                                                font-size: 12px;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
                                         }
+                                        Text { text: process.pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: process.parent-pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: process.cpu; color: #a6b3c2; width: 66px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: process.memory + " / " + process.memory-percent; color: #a6b3c2; width: 136px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
                                     }
-                                    Text { text: process.pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: process.parent-pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: process.cpu; color: #a6b3c2; width: 66px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: process.memory; color: #a6b3c2; width: 78px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                    TouchArea { clicked => { root.process-selected(process.key); } }
                                 }
                             }
                         }
