@@ -534,7 +534,18 @@ export component MainWindow inherits Window {
                                         Text { text: process.memory + " / " + process.memory-percent; color: #a6b3c2; width: 136px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
                                     }
                                     process-row-hit-target := TouchArea {
-                                        clicked => { root.process-selected(process.key); }
+                                        clicked => {
+                                            root.selected-process-key = process.key;
+                                            root.has-selected-process = true;
+                                            root.selected-process-name = process.name;
+                                            root.selected-process-pid = process.pid;
+                                            root.selected-process-parent-pid = process.parent-pid;
+                                            root.selected-process-started = process.started;
+                                            root.selected-process-cpu = process.cpu;
+                                            root.selected-process-memory = process.memory;
+                                            root.selected-process-memory-percent = process.memory-percent;
+                                            root.process-selected(process.key);
+                                        }
                                     }
                                 }
                             }

@@ -930,7 +930,7 @@ mod tests {
                 parent_pid: SharedString::from("1"),
                 started: SharedString::from("há 1 min"),
                 cpu: SharedString::from("1.0%"),
-                memory: SharedString::from("4.0 / 8.0 GiB"),
+                memory: SharedString::from("4.0"),
                 memory_percent: SharedString::from("50.0%"),
             }])));
 
@@ -950,6 +950,21 @@ mod tests {
             target.single_click(PointerEventButton::Left).await;
 
             assert_eq!(selected_key.borrow().as_deref(), Some("42:1700000000"));
+            assert_eq!(window.get_selected_process_key().as_str(), "42:1700000000");
+            assert!(window.get_has_selected_process());
+            assert_eq!(
+                window.get_selected_process_name().as_str(),
+                "fixture-worker"
+            );
+            assert_eq!(window.get_selected_process_pid().as_str(), "42");
+            assert_eq!(window.get_selected_process_parent_pid().as_str(), "1");
+            assert_eq!(window.get_selected_process_started().as_str(), "há 1 min");
+            assert_eq!(window.get_selected_process_cpu().as_str(), "1.0%");
+            assert_eq!(window.get_selected_process_memory().as_str(), "4.0");
+            assert_eq!(
+                window.get_selected_process_memory_percent().as_str(),
+                "50.0%"
+            );
             slint::quit_event_loop().expect("stop the testing event loop");
         })
         .expect("schedule the UI interaction");
