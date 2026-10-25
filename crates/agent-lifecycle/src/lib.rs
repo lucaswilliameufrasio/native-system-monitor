@@ -1,13 +1,13 @@
 use anyhow::{Context, Result, bail};
-use std::fs::{self, OpenOptions};
+#[cfg(not(windows))]
+use std::fs;
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Output;
-#[cfg(not(windows))]
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MANAGED_MARKER: &str = "managed-by-native-system-monitor";
-#[cfg(not(windows))]
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
