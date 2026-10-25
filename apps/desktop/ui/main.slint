@@ -533,7 +533,9 @@ export component MainWindow inherits Window {
                                         Text { text: process.cpu; color: #a6b3c2; width: 66px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
                                         Text { text: process.memory + " / " + process.memory-percent; color: #a6b3c2; width: 136px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
                                     }
-                                    TouchArea { clicked => { root.process-selected(process.key); } }
+                                    process-row-hit-target := TouchArea {
+                                        clicked => { root.process-selected(process.key); }
+                                    }
                                 }
                             }
                         }

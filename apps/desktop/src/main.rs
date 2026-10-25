@@ -794,13 +794,15 @@ fn initialize_logging() {
 #[cfg(test)]
 mod tests {
     use super::{
-        FIVE_MINUTES_MS, ONE_MINUTE_MS, ProcessSort, SortKey, compare_optional_cpu, downsample_max,
-        find_selected_process, lifecycle_status, memory_percentage, memory_summary,
-        metric_status_label, process_identity_key, process_start_age_label, sample_age_label,
-        select_history, sort_processes, swap_summary, unavailable_status,
+        FIVE_MINUTES_MS, MainPage, MainWindow, ONE_MINUTE_MS, ProcessRow, ProcessSort, SortKey,
+        compare_optional_cpu, downsample_max, find_selected_process, lifecycle_status,
+        memory_percentage, memory_summary, metric_status_label, process_identity_key,
+        process_start_age_label, sample_age_label, select_history, sort_processes, swap_summary,
+        unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
+    use slint::{ModelRc, SharedString, VecModel};
 
     #[test]
     fn downsamples_long_series_and_keeps_bucket_peaks() {
@@ -907,6 +909,52 @@ mod tests {
 
         assert!(find_selected_process(std::slice::from_ref(&original), "42:1").is_some());
         assert!(find_selected_process(std::slice::from_ref(&replacement), "42:1").is_none());
+    }
+
+    #[test]
+    fn clicking_a_process_row_emits_its_pid_and_start_time_identity() {
+        use i_slint_backend_testing::ElementHandle;
+        use slint::platform::PointerEventButton;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        i_slint_backend_testing::init_integration_test_with_system_time();
+
+        slint::spawn_local(async move {
+            let window = MainWindow::new().expect("create the test window");
+            window.set_active_page(MainPage::Processes);
+            window.set_processes(ModelRc::new(VecModel::from(vec![ProcessRow {
+                key: SharedString::from("42:1700000000"),
+                name: SharedString::from("fixture-worker"),
+                pid: SharedString::from("42"),
+                parent_pid: SharedString::from("1"),
+                started: SharedString::from("há 1 min"),
+                cpu: SharedString::from("1.0%"),
+                memory: SharedString::from("4.0 / 8.0 GiB"),
+                memory_percent: SharedString::from("50.0%"),
+            }])));
+
+            let selected_key = Rc::new(RefCell::new(None::<String>));
+            window.on_process_selected({
+                let selected_key = Rc::clone(&selected_key);
+                move |key| {
+                    *selected_key.borrow_mut() = Some(key.to_string());
+                }
+            });
+
+            let mut targets =
+                ElementHandle::find_by_element_id(&window, "MainWindow::process_row_hit_target");
+            let target = targets.next().expect("find the process row hit target");
+            assert!(targets.next().is_none());
+
+            target.single_click(PointerEventButton::Left).await;
+
+            assert_eq!(selected_key.borrow().as_deref(), Some("42:1700000000"));
+            slint::quit_event_loop().expect("stop the testing event loop");
+        })
+        .expect("schedule the UI interaction");
+
+        slint::run_event_loop().expect("run the testing event loop");
     }
 
     #[test]

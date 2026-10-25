@@ -43,6 +43,8 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
+        env:
+          SLINT_EMIT_DEBUG_INFO: "1"
         run: cargo test --workspace
 
       - name: Build workspace

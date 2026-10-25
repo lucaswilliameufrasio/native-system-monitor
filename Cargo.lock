@@ -2810,6 +2810,7 @@ name = "native-monitor-desktop"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "i-slint-backend-testing",
  "native-monitor-agent-lifecycle",
  "native-monitor-domain",
  "native-monitor-ipc",
