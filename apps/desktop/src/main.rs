@@ -259,11 +259,7 @@ fn main() -> Result<()> {
 
                             let selected_process = selected_process_key
                                 .as_deref()
-                                .and_then(|key| {
-                                    processes
-                                        .iter()
-                                        .find(|process| process_identity_key(process) == key)
-                                })
+                                .and_then(|key| find_selected_process(&processes, key))
                                 .map(|process| {
                                     process_row(process, total_memory_bytes, now_unix_ms)
                                 });
@@ -498,6 +494,15 @@ fn discover_agent_executable() -> Result<PathBuf> {
 
 fn process_identity_key(process: &ProcessMetrics) -> String {
     format!("{}:{}", process.pid, process.start_time_unix_seconds)
+}
+
+fn find_selected_process<'a>(
+    processes: &'a [ProcessMetrics],
+    selected_key: &str,
+) -> Option<&'a ProcessMetrics> {
+    processes
+        .iter()
+        .find(|process| process_identity_key(process) == selected_key)
 }
 
 fn process_row(
@@ -790,9 +795,9 @@ fn initialize_logging() {
 mod tests {
     use super::{
         FIVE_MINUTES_MS, ONE_MINUTE_MS, ProcessSort, SortKey, compare_optional_cpu, downsample_max,
-        lifecycle_status, memory_percentage, memory_summary, metric_status_label,
-        process_identity_key, process_start_age_label, sample_age_label, select_history,
-        sort_processes, swap_summary, unavailable_status,
+        find_selected_process, lifecycle_status, memory_percentage, memory_summary,
+        metric_status_label, process_identity_key, process_start_age_label, sample_age_label,
+        select_history, sort_processes, swap_summary, unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
@@ -892,6 +897,16 @@ mod tests {
             process_identity_key(&replacement)
         );
         assert_eq!(process_identity_key(&original), "42:1");
+    }
+
+    #[test]
+    fn selected_process_lookup_does_not_select_a_reused_pid() {
+        let original = process(42, "worker", Some(0.0), 100, None);
+        let mut replacement = original.clone();
+        replacement.start_time_unix_seconds = 200;
+
+        assert!(find_selected_process(std::slice::from_ref(&original), "42:1").is_some());
+        assert!(find_selected_process(std::slice::from_ref(&replacement), "42:1").is_none());
     }
 
     #[test]

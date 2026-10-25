@@ -482,6 +482,11 @@ mod tests {
     use native_monitor_domain::SystemSnapshot;
 
     #[cfg(unix)]
+    fn socket_test_directory(label: &str, id: u64) -> std::path::PathBuf {
+        std::path::PathBuf::from("/tmp").join(format!("nsm-{label}-{}-{id}", std::process::id()))
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn binds_local_listener_without_requiring_socket_file_chmod_support() {
         use super::create_listener_at;
@@ -489,10 +494,7 @@ mod tests {
 
         static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
-        let runtime_directory = std::env::temp_dir().join(format!(
-            "native-system-monitor-listener-test-{}-{id}",
-            std::process::id()
-        ));
+        let runtime_directory = socket_test_directory("listener", id);
         crate::unix_endpoint::ensure_private_directory(&runtime_directory)
             .expect("create private test runtime directory");
 
@@ -512,10 +514,7 @@ mod tests {
 
         static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
-        let runtime_directory = std::env::temp_dir().join(format!(
-            "native-system-monitor-stale-socket-test-{}-{id}",
-            std::process::id()
-        ));
+        let runtime_directory = socket_test_directory("stale", id);
         crate::unix_endpoint::ensure_private_directory(&runtime_directory)
             .expect("create private test runtime directory");
         let socket_path = runtime_directory.join("agent.sock");
@@ -537,10 +536,7 @@ mod tests {
 
         static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
         let id = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
-        let runtime_directory = std::env::temp_dir().join(format!(
-            "native-system-monitor-active-socket-test-{}-{id}",
-            std::process::id()
-        ));
+        let runtime_directory = socket_test_directory("active", id);
         crate::unix_endpoint::ensure_private_directory(&runtime_directory)
             .expect("create private test runtime directory");
         let socket_path = runtime_directory.join("agent.sock");

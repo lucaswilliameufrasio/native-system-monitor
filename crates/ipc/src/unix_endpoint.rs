@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) fn runtime_directory() -> PathBuf {
     let user_id = crate::unix_identity::effective_user_id();
-    std::env::temp_dir().join(format!("native-system-monitor-{user_id}"))
+    PathBuf::from("/tmp").join(format!("nsm-{user_id}"))
 }
 
 pub(crate) fn socket_path() -> PathBuf {
@@ -61,10 +61,7 @@ mod tests {
 
     fn unique_test_path() -> PathBuf {
         let id = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!(
-            "native-system-monitor-ipc-test-{}-{id}",
-            std::process::id()
-        ))
+        PathBuf::from("/tmp").join(format!("nsm-test-{}-{id}", std::process::id()))
     }
 
     #[test]
@@ -96,5 +93,11 @@ mod tests {
         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
         std::fs::remove_file(path).expect("remove runtime directory symlink");
         std::fs::remove_dir(target).expect("remove symlink target");
+    }
+
+    #[test]
+    fn runtime_socket_path_fits_the_macos_unix_socket_limit() {
+        let socket_path = super::socket_path();
+        assert!(socket_path.as_os_str().as_encoded_bytes().len() < 104);
     }
 }

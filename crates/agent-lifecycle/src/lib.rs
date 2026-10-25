@@ -3,9 +3,11 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Output;
+#[cfg(not(windows))]
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MANAGED_MARKER: &str = "managed-by-native-system-monitor";
+#[cfg(not(windows))]
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,6 +60,7 @@ fn validate_agent_path(path: &Path) -> Result<PathBuf> {
     Ok(canonical_path)
 }
 
+#[cfg(not(windows))]
 fn write_managed_file(path: &Path, contents: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -110,6 +113,7 @@ fn write_managed_file(path: &Path, contents: &str) -> Result<()> {
     }
 }
 
+#[cfg(not(windows))]
 fn temporary_path(destination: &Path) -> PathBuf {
     let sequence = NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed);
     let file_name = destination
@@ -607,15 +611,19 @@ mod platform {
     fn decode_task_xml(bytes: &[u8]) -> String {
         if bytes.starts_with(&[0xFF, 0xFE]) {
             let units = bytes[2..]
-                .chunks_exact(2)
-                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| u16::from_le_bytes(*pair))
                 .collect::<Vec<_>>();
             return String::from_utf16_lossy(&units);
         }
         if bytes.starts_with(&[0xFE, 0xFF]) {
             let units = bytes[2..]
-                .chunks_exact(2)
-                .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| u16::from_be_bytes(*pair))
                 .collect::<Vec<_>>();
             return String::from_utf16_lossy(&units);
         }
@@ -623,8 +631,10 @@ mod platform {
         let null_bytes = bytes.iter().filter(|byte| **byte == 0).count();
         if null_bytes > bytes.len() / 8 {
             let units = bytes
-                .chunks_exact(2)
-                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| u16::from_le_bytes(*pair))
                 .collect::<Vec<_>>();
             return String::from_utf16_lossy(&units);
         }
@@ -709,14 +719,22 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use super::require_success;
+    #[cfg(not(windows))]
     use super::{MANAGED_MARKER, require_success, write_managed_file};
+    #[cfg(not(windows))]
     use std::fs;
+    #[cfg(not(windows))]
     use std::path::PathBuf;
     use std::process::Command;
+    #[cfg(not(windows))]
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[cfg(not(windows))]
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
+    #[cfg(not(windows))]
     fn temporary_directory() -> PathBuf {
         let id = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!(
@@ -738,6 +756,7 @@ mod tests {
         assert!(!output.stdout.is_empty());
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn managed_startup_file_is_idempotently_updated() {
         let directory = temporary_directory();
@@ -756,6 +775,7 @@ mod tests {
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn unmanaged_startup_file_is_never_overwritten() {
         let directory = temporary_directory();
