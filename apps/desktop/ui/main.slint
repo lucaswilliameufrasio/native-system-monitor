@@ -166,14 +166,14 @@ component ChartPanel inherits Rectangle {
                     for point in points: Rectangle {
                         min-width: 1px;
                         horizontal-stretch: 1;
+                        height: parent.height;
                         background: transparent;
-                        VerticalBox {
-                            Rectangle { vertical-stretch: 1; background: transparent; }
-                            Rectangle {
-                                height: parent.height * point / 100;
-                                background: accent;
-                                border-radius: 2px;
-                            }
+                        Rectangle {
+                            y: parent.height * (1 - point / 100);
+                            width: parent.width;
+                            height: parent.height * point / 100;
+                            background: accent;
+                            border-radius: 2px;
                         }
                     }
                 }
