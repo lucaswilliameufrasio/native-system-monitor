@@ -143,7 +143,7 @@ fn write_new_file(path: &Path, contents: &str) -> Result<()> {
     Ok(())
 }
 
-fn require_success(output: Output, action: &str) -> Result<()> {
+fn require_success(output: &Output, action: &str) -> Result<()> {
     if output.status.success() {
         return Ok(());
     }
@@ -269,7 +269,7 @@ mod platform {
             .args(arguments)
             .output()
             .with_context(|| format!("run systemctl to {action}"))?;
-        require_success(output, action)
+        require_success(&output, action)
     }
 
     fn config_home() -> Result<PathBuf> {
@@ -445,7 +445,7 @@ mod platform {
                     .args(["kickstart", "-k", target.as_str()])
                     .output()
                     .context("restart the per-user agent through launchd")?;
-                require_success(output, "restart the per-user agent through launchd")?;
+                require_success(&output, "restart the per-user agent through launchd")?;
             } else {
                 let domain_argument = domain.as_str();
                 let plist_argument = plist_path
@@ -455,7 +455,7 @@ mod platform {
                     .args(["bootstrap", domain_argument, plist_argument])
                     .output()
                     .context("register and start the per-user LaunchAgent")?;
-                require_success(output, "register and start the per-user LaunchAgent")?;
+                require_success(&output, "register and start the per-user LaunchAgent")?;
             }
         }
 
@@ -467,7 +467,7 @@ mod platform {
             .arg("-u")
             .output()
             .context("read the current user ID for launchd")?;
-        require_success(output, "read the current user ID for launchd")?;
+        require_success(&output, "read the current user ID for launchd")?;
         let user_id = String::from_utf8(output.stdout)
             .context("current user ID is not valid UTF-8")?
             .trim()
@@ -554,14 +554,15 @@ mod platform {
             .output()
             .context("register the per-user logon task");
         let _ = fs::remove_file(&xml_path);
-        require_success(output_result?, "register the per-user logon task")?;
+        let output = output_result?;
+        require_success(&output, "register the per-user logon task")?;
 
         if start_now {
             let output = Command::new("schtasks.exe")
                 .args(["/Run", "/TN", TASK_NAME])
                 .output()
                 .context("start the per-user agent task")?;
-            require_success(output, "start the per-user agent task")?;
+            require_success(&output, "start the per-user agent task")?;
         }
 
         Ok(StartupMode::WindowsLogonTask)
@@ -585,7 +586,7 @@ mod platform {
             .output()
             .context("check whether the scheduled task name is already in use")?;
         let task_list = decode_task_xml(&tasks.stdout);
-        require_success(tasks, "list scheduled tasks")?;
+        require_success(&tasks, "list scheduled tasks")?;
         let root_task_name = format!("\\{TASK_NAME}");
         for line in task_list.lines() {
             let task_name = line
@@ -708,9 +709,10 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{MANAGED_MARKER, write_managed_file};
+    use super::{MANAGED_MARKER, require_success, write_managed_file};
     use std::fs;
     use std::path::PathBuf;
+    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -721,6 +723,19 @@ mod tests {
             "native-monitor-lifecycle-test-{}-{id}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn checking_command_success_preserves_stdout_for_the_caller() {
+        let test_binary = std::env::current_exe().expect("locate the test binary");
+        let output = Command::new(test_binary)
+            .arg("--list")
+            .output()
+            .expect("list tests from the test binary");
+
+        require_success(&output, "list tests").expect("test listing succeeds");
+
+        assert!(!output.stdout.is_empty());
     }
 
     #[test]
