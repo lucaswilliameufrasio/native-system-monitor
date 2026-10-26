@@ -163,6 +163,10 @@ impl SystemCollector for SysinfoCollector {
         let (gpus, gpu_status) = self.nvidia.collect();
         #[cfg(not(target_os = "linux"))]
         let (gpus, gpu_status) = (Vec::new(), MetricStatus::Unsupported);
+        #[cfg(target_os = "linux")]
+        let (batteries, battery_status) = collect_batteries();
+        #[cfg(not(target_os = "linux"))]
+        let (batteries, battery_status) = (Vec::new(), MetricStatus::Unsupported);
         processes.sort_by(|left, right| {
             compare_cpu_usage(left.cpu_usage_percent, right.cpu_usage_percent)
                 .then_with(|| left.identity.pid.cmp(&right.identity.pid))
@@ -198,6 +202,8 @@ impl SystemCollector for SysinfoCollector {
             block_device_io_status,
             gpus,
             gpu_status,
+            batteries,
+            battery_status,
             processes,
             cpu_history_percent: Vec::new(),
             memory_history_percent: Vec::new(),
@@ -263,7 +269,27 @@ impl SystemCollector for SysinfoCollector {
                 #[cfg(not(target_os = "linux"))]
                 source: "no native adapter",
             },
+            Capability {
+                name: "battery_telemetry",
+                #[cfg(target_os = "linux")]
+                status: "optional",
+                #[cfg(not(target_os = "linux"))]
+                status: "unsupported",
+                #[cfg(target_os = "linux")]
+                source: "/sys/class/power_supply (read-only)",
+                #[cfg(not(target_os = "linux"))]
+                source: "no native adapter",
+            },
         ]
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn collect_batteries() -> (Vec<native_monitor_domain::BatteryMetrics>, MetricStatus) {
+    match native_monitor_collectors_linux::read_system_batteries() {
+        Ok(batteries) if batteries.is_empty() => (batteries, MetricStatus::Unsupported),
+        Ok(batteries) => (batteries, MetricStatus::Ok),
+        Err(_) => (Vec::new(), MetricStatus::Error),
     }
 }
 

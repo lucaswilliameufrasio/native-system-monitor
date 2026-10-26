@@ -133,6 +133,18 @@ mod tests {
                     power_watts: Some(12.5),
                 }],
                 gpu_status: "ok".to_owned(),
+                batteries: vec![crate::wire::BatteryMetrics {
+                    id: "BAT0".to_owned(),
+                    model: Some("Battery fixture".to_owned()),
+                    status: Some("Discharging".to_owned()),
+                    capacity_percent: Some(75),
+                    energy_now_wh: Some(42.0),
+                    energy_full_wh: Some(56.0),
+                    power_watts: None,
+                    temperature_celsius: Some(31.5),
+                    cycle_count: Some(220),
+                }],
+                battery_status: "ok".to_owned(),
                 ..Snapshot::default()
             }),
             ..Response::default()
@@ -180,6 +192,10 @@ mod tests {
         assert_eq!(snapshot.gpus[0].utilization_percent, Some(42.0));
         assert_eq!(snapshot.gpus[0].temperature_celsius, None);
         assert_eq!(snapshot.gpus[0].power_watts, Some(12.5));
+        assert_eq!(snapshot.batteries.len(), 1);
+        assert_eq!(snapshot.batteries[0].id, "BAT0");
+        assert_eq!(snapshot.batteries[0].capacity_percent, Some(75));
+        assert_eq!(snapshot.batteries[0].power_watts, None);
         assert_eq!(snapshot.block_device_io_status, "ok");
     }
 

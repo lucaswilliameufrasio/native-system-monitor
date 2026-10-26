@@ -2851,6 +2851,9 @@ dependencies = [
 [[package]]
 name = "native-monitor-collectors-linux"
 version = "0.1.0"
+dependencies = [
+ "native-monitor-domain",
+]
 
 [[package]]
 name = "native-monitor-collectors-nvidia"

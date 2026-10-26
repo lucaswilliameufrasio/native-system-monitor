@@ -10,6 +10,6 @@ pub mod wire {
 }
 
 pub const PROTOCOL_MAJOR: u32 = 1;
-pub const PROTOCOL_MINOR: u32 = 7;
+pub const PROTOCOL_MINOR: u32 = 8;
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_ACTIVE_CLIENTS: usize = 8;

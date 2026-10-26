@@ -81,6 +81,7 @@ async fn run() -> Result<()> {
             let required_minor = match device_type.as_str() {
                 "block" => 4,
                 "gpu" => 7,
+                "battery" => 8,
                 _ => 3,
             };
             if response.protocol_minor < required_minor {
@@ -191,7 +192,56 @@ async fn run() -> Result<()> {
                         println!("GPU status: {}", snapshot.gpu_status);
                     }
                 }
-                _ => bail!("--type must be disk, network, block, or gpu"),
+                "battery" => {
+                    println!(
+                        "{:<12} {:<20} {:>8} {:>12} {:>12} {:>10} {:>8} {:>10}",
+                        "battery",
+                        "status",
+                        "capacity",
+                        "energy",
+                        "full",
+                        "power",
+                        "temp",
+                        "cycles"
+                    );
+                    for battery in &snapshot.batteries {
+                        let energy = battery
+                            .energy_now_wh
+                            .map(|value| format!("{value:.1} Wh"))
+                            .unwrap_or_else(|| "—".to_owned());
+                        let energy_full = battery
+                            .energy_full_wh
+                            .map(|value| format!("{value:.1} Wh"))
+                            .unwrap_or_else(|| "—".to_owned());
+                        println!(
+                            "{:<12} {:<20} {:>8} {:>12} {:>12} {:>10} {:>8} {:>10}",
+                            battery.id,
+                            battery.status.as_deref().unwrap_or("—"),
+                            battery
+                                .capacity_percent
+                                .map(|value| format!("{value}%"))
+                                .unwrap_or_else(|| "—".to_owned()),
+                            energy,
+                            energy_full,
+                            battery
+                                .power_watts
+                                .map(|value| format!("{value:.1} W"))
+                                .unwrap_or_else(|| "—".to_owned()),
+                            battery
+                                .temperature_celsius
+                                .map(|value| format!("{value:.1}°C"))
+                                .unwrap_or_else(|| "—".to_owned()),
+                            battery
+                                .cycle_count
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "—".to_owned())
+                        );
+                    }
+                    if snapshot.batteries.is_empty() {
+                        println!("Battery status: {}", snapshot.battery_status);
+                    }
+                }
+                _ => bail!("--type must be disk, network, block, gpu, or battery"),
             }
         }
         "--help" | "-h" | "help" => print_help(),
@@ -213,7 +263,7 @@ fn parse_device_options(mut arguments: impl Iterator<Item = String>) -> Result<S
                 device_type = Some(
                     arguments
                         .next()
-                        .context("--type requires disk, network, block, or gpu")?,
+                        .context("--type requires disk, network, block, gpu, or battery")?,
                 );
             }
             _ => bail!("unknown devices option {argument}"),
@@ -221,13 +271,14 @@ fn parse_device_options(mut arguments: impl Iterator<Item = String>) -> Result<S
     }
 
     let device_type =
-        device_type.context("devices requires --type disk, network, block, or gpu")?;
+        device_type.context("devices requires --type disk, network, block, gpu, or battery")?;
     if device_type != "disk"
         && device_type != "network"
         && device_type != "block"
         && device_type != "gpu"
+        && device_type != "battery"
     {
-        bail!("--type must be disk, network, block, or gpu");
+        bail!("--type must be disk, network, block, gpu, or battery");
     }
 
     Ok(device_type)
@@ -329,7 +380,7 @@ fn parse_process_options(mut arguments: impl Iterator<Item = String>) -> Result<
 
 fn print_help() {
     println!(
-        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl devices --type disk|network|block|gpu"
+        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl devices --type disk|network|block|gpu|battery"
     );
 }
 
@@ -360,6 +411,11 @@ mod tests {
             parse_device_options(["--type".to_owned(), "gpu".to_owned()].into_iter())
                 .expect("parse GPU device option"),
             "gpu"
+        );
+        assert_eq!(
+            parse_device_options(["--type".to_owned(), "battery".to_owned()].into_iter())
+                .expect("parse battery device option"),
+            "battery"
         );
         assert!(
             parse_device_options(

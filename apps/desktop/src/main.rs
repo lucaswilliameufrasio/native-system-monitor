@@ -22,6 +22,7 @@ const VOLUME_IO_QUERY_PROTOCOL_MINOR: u32 = 5;
 const NETWORK_QUERY_PROTOCOL_MINOR: u32 = 3;
 const BLOCK_DEVICE_IO_PROTOCOL_MINOR: u32 = 4;
 const GPU_METRICS_PROTOCOL_MINOR: u32 = 7;
+const BATTERY_METRICS_PROTOCOL_MINOR: u32 = 8;
 const ONE_MINUTE_MS: u64 = 60_000;
 const FIVE_MINUTES_MS: u64 = 300_000;
 
@@ -395,6 +396,27 @@ fn main() -> Result<()> {
                             } else {
                                 String::new()
                             };
+                            let battery_value = snapshot
+                                .batteries
+                                .first()
+                                .and_then(|battery| battery.capacity_percent)
+                                .map(|capacity| format!("{capacity}%"))
+                                .unwrap_or_else(|| "—".to_owned());
+                            let battery_status = if response.protocol_minor
+                                < BATTERY_METRICS_PROTOCOL_MINOR
+                            {
+                                "Agente sem suporte a métricas de bateria nesta versão".to_owned()
+                            } else if let Some(battery) = snapshot.batteries.first() {
+                                let state =
+                                    battery.status.as_deref().unwrap_or("estado desconhecido");
+                                let power = battery
+                                    .power_watts
+                                    .map(|value| format!("{value:.1} W"))
+                                    .unwrap_or_else(|| "potência indisponível".to_owned());
+                                format!("{} · {state} · {power}", battery.id)
+                            } else {
+                                metric_status_label(snapshot.battery_status.as_str())
+                            };
                             let volumes = snapshot
                                 .volumes
                                 .iter()
@@ -554,6 +576,8 @@ fn main() -> Result<()> {
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(cpu_cores)));
                                 window.set_gpus(ModelRc::new(VecModel::from(gpus)));
                                 window.set_gpu_status(SharedString::from(gpu_status));
+                                window.set_battery_value(SharedString::from(battery_value));
+                                window.set_battery_status(SharedString::from(battery_status));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(cpu_history)));
                                 window.set_memory_history(ModelRc::new(VecModel::from(
                                     memory_history,
@@ -613,6 +637,9 @@ fn main() -> Result<()> {
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_gpus(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_gpu_status(SharedString::from("GPU indisponível"));
+                                window.set_battery_value(SharedString::from("—"));
+                                window
+                                    .set_battery_status(SharedString::from("Bateria indisponível"));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_memory_history(ModelRc::new(VecModel::from(Vec::new())));
                             }

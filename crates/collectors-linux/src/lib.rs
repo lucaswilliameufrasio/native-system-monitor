@@ -2,6 +2,10 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+mod power_supply;
+
+pub use power_supply::read_system_batteries;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiskCounters {
     pub major: u32,

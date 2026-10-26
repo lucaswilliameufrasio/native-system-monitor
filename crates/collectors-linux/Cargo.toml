@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+native-monitor-domain = { path = "../domain" }
 
 [lints]
 workspace = true

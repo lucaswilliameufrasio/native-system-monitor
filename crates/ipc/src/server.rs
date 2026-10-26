@@ -312,6 +312,22 @@ fn handle_request(
                         })
                         .collect(),
                     gpu_status: snapshot.gpu_status.as_str().to_owned(),
+                    batteries: snapshot
+                        .batteries
+                        .iter()
+                        .map(|battery| crate::wire::BatteryMetrics {
+                            id: battery.id.clone(),
+                            model: battery.model.clone(),
+                            status: battery.status.clone(),
+                            capacity_percent: battery.capacity_percent.map(u32::from),
+                            energy_now_wh: battery.energy_now_wh,
+                            energy_full_wh: battery.energy_full_wh,
+                            power_watts: battery.power_watts,
+                            temperature_celsius: battery.temperature_celsius,
+                            cycle_count: battery.cycle_count,
+                        })
+                        .collect(),
+                    battery_status: snapshot.battery_status.as_str().to_owned(),
                 }),
                 ..Response::default()
             }

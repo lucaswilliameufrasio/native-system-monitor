@@ -52,6 +52,8 @@ message Snapshot {
   string block_device_io_status = 12;
   repeated GpuMetrics gpus = 13;
   string gpu_status = 14;
+  repeated BatteryMetrics batteries = 15;
+  string battery_status = 16;
 }
 
 message CpuMetrics {
@@ -105,6 +107,18 @@ message GpuMetrics {
   optional uint32 graphics_clock_mhz = 7;
   optional uint32 memory_clock_mhz = 8;
   optional double power_watts = 9;
+}
+
+message BatteryMetrics {
+  string id = 1;
+  optional string model = 2;
+  optional string status = 3;
+  optional uint32 capacity_percent = 4;
+  optional double energy_now_wh = 5;
+  optional double energy_full_wh = 6;
+  optional double power_watts = 7;
+  optional double temperature_celsius = 8;
+  optional uint32 cycle_count = 9;
 }
 
 message ProcessMetrics {

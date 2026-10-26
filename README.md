@@ -48,6 +48,7 @@ cargo run -p native-monitorctl -- processes --sort cpu --limit 25
 cargo run -p native-monitorctl -- devices --type disk
 cargo run -p native-monitorctl -- devices --type block
 cargo run -p native-monitorctl -- devices --type gpu
+cargo run -p native-monitorctl -- devices --type battery
 ```
 
 Em desenvolvimento, o registro aponta para os binários em `target/debug`; apagar

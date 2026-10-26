@@ -263,6 +263,8 @@ export component MainWindow inherits Window {
     in-out property <[BlockDeviceRow]> block-devices: [];
     in-out property <[GpuRow]> gpus: [];
     in-out property <string> gpu-status: "GPU indisponível";
+    in-out property <string> battery-value: "—";
+    in-out property <string> battery-status: "Bateria indisponível";
     in-out property <string> block-device-io-status: "Aguardando conexão com o agente…";
     in-out property <[float]> cpu-history: [];
     in-out property <[float]> memory-history: [];
@@ -410,6 +412,13 @@ export component MainWindow inherits Window {
                             title: "Processos";
                             value: root.process-count;
                             detail: "visíveis nesta amostra";
+                            accent: #e8b75b;
+                        }
+                        MetricPanel {
+                            horizontal-stretch: 1;
+                            title: "Bateria";
+                            value: root.battery-value;
+                            detail: root.battery-status;
                             accent: #e8b75b;
                         }
                     }
