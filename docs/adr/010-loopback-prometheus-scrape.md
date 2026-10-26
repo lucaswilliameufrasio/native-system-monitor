@@ -26,7 +26,8 @@ exportação.
 - Permitir allowlist de famílias (`cpu`, `memory`, `storage`, `network`, `gpu`,
   `battery`, `health`). Lista vazia preserva todas as famílias; configuração
   desconhecida é rejeitada. As métricas de saúde do agente/exporter permanecem
-  disponíveis quando qualquer allowlist está ativa.
+  disponíveis quando qualquer allowlist está ativa, incluindo `build_info` e
+  `exporter_up`.
 - Exportar somente gauges agregados/topologia de dispositivos com aliases
   (`block0`, `interface0`, `gpu0`, `battery0`), nunca nome do dispositivo,
   modelo, serial, nome de usuário ou métricas por processo. Campos ausentes e

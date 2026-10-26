@@ -184,6 +184,13 @@ fn render_prometheus_for_families(snapshot: &SystemSnapshot, enabled: &[String])
     }
     let _ = writeln_metric(
         &mut output,
+        "native_monitor_build_info",
+        &[("version", env!("CARGO_PKG_VERSION"))],
+        Some(1.0),
+    );
+    let _ = writeln_metric(&mut output, "native_monitor_exporter_up", &[], Some(1.0));
+    let _ = writeln_metric(
+        &mut output,
         "native_monitor_snapshot_timestamp_seconds",
         &[],
         (snapshot.captured_at_unix_ms > 0).then_some(snapshot.captured_at_unix_ms as f64 / 1_000.0),
@@ -531,6 +538,8 @@ fn metric_family(name: &str) -> Option<&'static str> {
     } else if name.starts_with("native_monitor_battery_") {
         Some("battery")
     } else if name == "native_monitor_snapshot_timestamp_seconds"
+        || name == "native_monitor_build_info"
+        || name == "native_monitor_exporter_up"
         || name == "native_monitor_collector_up"
         || name == "native_monitor_exporter_truncated_series"
     {
@@ -542,7 +551,17 @@ fn metric_family(name: &str) -> Option<&'static str> {
 
 use std::fmt::Write;
 
-const METRIC_FAMILIES: [(&str, Option<&str>, &str); 32] = [
+const METRIC_FAMILIES: [(&str, Option<&str>, &str); 34] = [
+    (
+        "native_monitor_build_info",
+        None,
+        "Build version information for the native monitor agent.",
+    ),
+    (
+        "native_monitor_exporter_up",
+        None,
+        "Whether the local exporter is serving this metrics snapshot.",
+    ),
     (
         "native_monitor_snapshot_timestamp_seconds",
         Some("seconds"),
@@ -804,6 +823,8 @@ mod tests {
         let output = render_prometheus(&snapshot);
 
         assert!(output.contains("native_monitor_cpu_utilization_ratio 0.25"));
+        assert!(output.contains("native_monitor_build_info{version=\"0.1.0\"} 1"));
+        assert!(output.contains("native_monitor_exporter_up 1"));
         assert!(
             output.contains("native_monitor_disk_read_bytes_per_second{device=\"block0\"} 1024")
         );
