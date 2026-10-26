@@ -120,17 +120,26 @@ async fn run() -> Result<()> {
                 }
                 "block" => {
                     println!(
-                        "{:<16} {:>12} {:>12} {:>10} {:>10} {:>8}",
-                        "device", "read", "write", "read IOPS", "write IOPS", "busy"
+                        "{:<16} {:>12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>8}",
+                        "device",
+                        "read",
+                        "write",
+                        "read IOPS",
+                        "write IOPS",
+                        "read ms",
+                        "write ms",
+                        "busy"
                     );
                     for device in snapshot.block_devices {
                         println!(
-                            "{:<16} {:>12} {:>12} {:>10} {:>10} {:>8}",
+                            "{:<16} {:>12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>8}",
                             device.name,
                             format_bytes_per_second(device.read_bytes_per_second),
                             format_bytes_per_second(device.write_bytes_per_second),
                             format_operations_per_second(device.read_operations_per_second),
                             format_operations_per_second(device.write_operations_per_second),
+                            format_latency_ms(device.read_latency_ms),
+                            format_latency_ms(device.write_latency_ms),
                             device
                                 .busy_percent
                                 .map(|value| format!("{value:.1}%"))
@@ -221,6 +230,13 @@ fn format_operations_per_second(operations_per_second: Option<f64>) -> String {
     operations_per_second
         .filter(|value| value.is_finite() && *value >= 0.0)
         .map(|value| format!("{value:.1}"))
+        .unwrap_or_else(|| "—".to_owned())
+}
+
+fn format_latency_ms(latency_ms: Option<f64>) -> String {
+    latency_ms
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(|value| format!("{value:.2}"))
         .unwrap_or_else(|| "—".to_owned())
 }
 

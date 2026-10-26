@@ -62,6 +62,8 @@ pub struct BlockDeviceMetrics {
     pub write_bytes_per_second: Option<f64>,
     pub read_operations_per_second: Option<f64>,
     pub write_operations_per_second: Option<f64>,
+    pub read_latency_ms: Option<f64>,
+    pub write_latency_ms: Option<f64>,
     pub busy_percent: Option<f64>,
 }
 

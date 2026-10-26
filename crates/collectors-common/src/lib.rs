@@ -294,6 +294,22 @@ impl SysinfoCollector {
                         1.0,
                     )
                 }),
+                read_latency_ms: previous.and_then(|(previous, _)| {
+                    average_operation_latency(
+                        counters.read_millis,
+                        previous.read_millis,
+                        counters.reads_completed,
+                        previous.reads_completed,
+                    )
+                }),
+                write_latency_ms: previous.and_then(|(previous, _)| {
+                    average_operation_latency(
+                        counters.write_millis,
+                        previous.write_millis,
+                        counters.writes_completed,
+                        previous.writes_completed,
+                    )
+                }),
                 busy_percent: previous.and_then(|(previous, _)| {
                     let elapsed_millis = elapsed?.as_secs_f64() * 1_000.0;
                     if elapsed_millis <= 0.0 {
@@ -315,6 +331,8 @@ impl SysinfoCollector {
                 && device.write_bytes_per_second.is_none()
                 && device.read_operations_per_second.is_none()
                 && device.write_operations_per_second.is_none()
+                && device.read_latency_ms.is_none()
+                && device.write_latency_ms.is_none()
                 && device.busy_percent.is_none()
         }) {
             MetricStatus::WarmingUp
@@ -323,6 +341,21 @@ impl SysinfoCollector {
         };
         (devices, status)
     }
+}
+
+#[cfg(target_os = "linux")]
+fn average_operation_latency(
+    current_millis: u64,
+    previous_millis: u64,
+    current_operations: u64,
+    previous_operations: u64,
+) -> Option<f64> {
+    let elapsed_millis = current_millis.checked_sub(previous_millis)?;
+    let operations = current_operations.checked_sub(previous_operations)?;
+    if operations == 0 {
+        return None;
+    }
+    Some(elapsed_millis as f64 / operations as f64)
 }
 
 fn counter_rate(current: u64, previous: u64, elapsed: Duration) -> Option<f64> {
@@ -365,7 +398,7 @@ fn compare_cpu_usage(left: Option<f32>, right: Option<f32>) -> std::cmp::Orderin
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "linux")]
-    use super::counter_rate_scaled;
+    use super::{average_operation_latency, counter_rate_scaled};
     use super::{counter_rate, interval_rate};
     use std::time::Duration;
 
@@ -401,5 +434,14 @@ mod tests {
             None
         );
         assert_eq!(counter_rate_scaled(12, 4, Duration::ZERO, 512.0), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn block_device_latency_uses_operation_and_time_deltas() {
+        assert_eq!(average_operation_latency(25, 10, 8, 3), Some(3.0));
+        assert_eq!(average_operation_latency(9, 10, 8, 3), None);
+        assert_eq!(average_operation_latency(25, 10, 3, 3), None);
+        assert_eq!(average_operation_latency(25, 10, 2, 3), None);
     }
 }

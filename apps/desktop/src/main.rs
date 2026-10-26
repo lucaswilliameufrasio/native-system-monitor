@@ -418,6 +418,12 @@ fn main() -> Result<()> {
                                     write_iops: SharedString::from(format_operations_per_second(
                                         device.write_operations_per_second,
                                     )),
+                                    read_latency: SharedString::from(format_latency_ms(
+                                        device.read_latency_ms,
+                                    )),
+                                    write_latency: SharedString::from(format_latency_ms(
+                                        device.write_latency_ms,
+                                    )),
                                     busy: SharedString::from(
                                         device
                                             .busy_percent
@@ -707,6 +713,13 @@ fn format_operations_per_second(operations_per_second: Option<f64>) -> String {
     operations_per_second
         .filter(|value| value.is_finite() && *value >= 0.0)
         .map(|value| format!("{value:.1} op/s"))
+        .unwrap_or_else(|| "—".to_owned())
+}
+
+fn format_latency_ms(latency_ms: Option<f64>) -> String {
+    latency_ms
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(|value| format!("{value:.2}"))
         .unwrap_or_else(|| "—".to_owned())
 }
 

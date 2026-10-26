@@ -9,8 +9,10 @@ pub struct DiskCounters {
     pub name: String,
     pub reads_completed: u64,
     pub sectors_read: u64,
+    pub read_millis: u64,
     pub writes_completed: u64,
     pub sectors_written: u64,
+    pub write_millis: u64,
     pub io_millis: u64,
 }
 
@@ -47,11 +49,11 @@ fn parse_diskstats_line(line: &str) -> Option<DiskCounters> {
     let reads_completed = fields.next()?.parse().ok()?;
     let _reads_merged = fields.next()?.parse::<u64>().ok()?;
     let sectors_read = fields.next()?.parse().ok()?;
-    let _read_millis = fields.next()?.parse::<u64>().ok()?;
+    let read_millis = fields.next()?.parse().ok()?;
     let writes_completed = fields.next()?.parse().ok()?;
     let _writes_merged = fields.next()?.parse::<u64>().ok()?;
     let sectors_written = fields.next()?.parse().ok()?;
-    let _write_millis = fields.next()?.parse::<u64>().ok()?;
+    let write_millis = fields.next()?.parse().ok()?;
     let _io_in_progress = fields.next()?.parse::<u64>().ok()?;
     let io_millis = fields.next()?.parse().ok()?;
 
@@ -61,8 +63,10 @@ fn parse_diskstats_line(line: &str) -> Option<DiskCounters> {
         name,
         reads_completed,
         sectors_read,
+        read_millis,
         writes_completed,
         sectors_written,
+        write_millis,
         io_millis,
     })
 }
@@ -112,8 +116,10 @@ mod tests {
                     name: "sda".to_owned(),
                     reads_completed: 100,
                     sectors_read: 300,
+                    read_millis: 4,
                     writes_completed: 50,
                     sectors_written: 600,
+                    write_millis: 7,
                     io_millis: 80,
                 },
                 DiskCounters {
@@ -122,8 +128,10 @@ mod tests {
                     name: "sda1".to_owned(),
                     reads_completed: 10,
                     sectors_read: 20,
+                    read_millis: 0,
                     writes_completed: 5,
                     sectors_written: 30,
+                    write_millis: 0,
                     io_millis: 4,
                 },
             ]
@@ -151,8 +159,10 @@ mod tests {
                 name: "sda".to_owned(),
                 reads_completed: 0,
                 sectors_read: 0,
+                read_millis: 0,
                 writes_completed: 0,
                 sectors_written: 0,
+                write_millis: 0,
                 io_millis: 0,
             },
             &sysfs,
@@ -164,8 +174,10 @@ mod tests {
                 name: "sda1".to_owned(),
                 reads_completed: 0,
                 sectors_read: 0,
+                read_millis: 0,
                 writes_completed: 0,
                 sectors_written: 0,
+                write_millis: 0,
                 io_millis: 0,
             },
             &sysfs,
@@ -177,8 +189,10 @@ mod tests {
                 name: "dm-0".to_owned(),
                 reads_completed: 0,
                 sectors_read: 0,
+                read_millis: 0,
                 writes_completed: 0,
                 sectors_written: 0,
+                write_millis: 0,
                 io_millis: 0,
             },
             &sysfs,

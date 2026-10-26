@@ -117,6 +117,8 @@ mod tests {
                     read_operations_per_second: Some(2.0),
                     write_operations_per_second: None,
                     busy_percent: Some(12.5),
+                    read_latency_ms: Some(2.5),
+                    write_latency_ms: None,
                 }],
                 block_device_io_status: "ok".to_owned(),
                 ..Snapshot::default()
@@ -159,6 +161,8 @@ mod tests {
         );
         assert_eq!(snapshot.block_devices[0].write_bytes_per_second, None);
         assert_eq!(snapshot.block_devices[0].busy_percent, Some(12.5));
+        assert_eq!(snapshot.block_devices[0].read_latency_ms, Some(2.5));
+        assert_eq!(snapshot.block_devices[0].write_latency_ms, None);
         assert_eq!(snapshot.block_device_io_status, "ok");
     }
 

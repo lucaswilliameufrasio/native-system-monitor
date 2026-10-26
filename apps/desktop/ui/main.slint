@@ -38,6 +38,8 @@ export struct BlockDeviceRow {
     write-rate: string,
     read-iops: string,
     write-iops: string,
+    read-latency: string,
+    write-latency: string,
     busy: string,
 }
 
@@ -773,6 +775,8 @@ export component MainWindow inherits Window {
                                     Text { text: device.write-rate; color: #a6b3c2; font-size: 11px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: device.read-iops; color: #a6b3c2; font-size: 11px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: device.write-iops; color: #a6b3c2; font-size: 11px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: device.read-latency; color: #a6b3c2; font-size: 11px; width: 62px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: device.write-latency; color: #a6b3c2; font-size: 11px; width: 62px; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: device.busy; color: #a6b3c2; font-size: 11px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
                                 }
                             }

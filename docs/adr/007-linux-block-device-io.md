@@ -20,7 +20,9 @@ dispositivos com dependências (por exemplo device-mapper e RAID).
   incluir o dispositivo como se fosse independente.
 - Calcular bytes/s usando setores de 512 bytes, IOPS pelos counters de operações
   concluídas e busy% pelo delta de `io_millis`/tempo monotônico, limitado a
-  0–100%. Primeiro sample, resets e intervalos inválidos mantêm taxa ausente.
+  0–100%. Latência média de leitura/escrita é o delta do tempo de leitura/escrita
+  dividido pelo delta de operações concluídas. Primeiro sample, resets, deltas
+  inconsistentes e intervalos sem operações mantêm a métrica ausente.
 - Expor métricas explicitamente como I/O de dispositivo de bloco; manter
   volumes montados separados. O coletor informa unsupported fora do Linux até
   existir e ser homologado um adaptador específico.
@@ -36,7 +38,8 @@ dispositivos com dependências (por exemplo device-mapper e RAID).
 
 ## Consequências e revisão
 
-Os valores refletem o que o kernel reporta por major:minor e não identificam
-latência, saúde, modelo ou tipo físico. A fatia requer fixtures de parser e
-topologia, serialização e teste de carga/fonte independente. Rever o filtro em
-hardware real com device-mapper/RAID e ao implementar adapters macOS/Windows.
+Os valores refletem o que o kernel reporta por major:minor; latência é média
+agregada, não latência de cada requisição, e não identifica saúde, modelo ou tipo
+físico. Fixtures de parser/topologia e round-trip IPC cobrem a implementação;
+teste de carga/fonte independente segue pendente. Rever o filtro em hardware real
+com device-mapper/RAID e ao implementar adapters macOS/Windows.

@@ -291,6 +291,8 @@ fn handle_request(
                             read_operations_per_second: device.read_operations_per_second,
                             write_operations_per_second: device.write_operations_per_second,
                             busy_percent: device.busy_percent,
+                            read_latency_ms: device.read_latency_ms,
+                            write_latency_ms: device.write_latency_ms,
                         })
                         .collect(),
                     block_device_io_status: snapshot.block_device_io_status.as_str().to_owned(),
