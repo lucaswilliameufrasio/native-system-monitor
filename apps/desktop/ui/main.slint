@@ -79,6 +79,11 @@ component NavigationItem inherits Rectangle {
     in property <string> label;
     in property <bool> active;
     callback activated();
+    accessible-role: tab;
+    accessible-label: label;
+    accessible-item-selectable: true;
+    accessible-item-selected: active;
+    accessible-action-default => { root.activated(); }
     height: 42px;
     border-radius: 6px;
     background: active ? #263a4c : transparent;
@@ -99,6 +104,11 @@ component RangeChoice inherits Rectangle {
     in property <string> label;
     in property <bool> active;
     callback activated();
+    accessible-role: radio-button;
+    accessible-label: label;
+    accessible-checkable: true;
+    accessible-checked: active;
+    accessible-action-default => { root.activated(); }
     width: 72px;
     height: 30px;
     border-radius: 5px;
@@ -124,6 +134,10 @@ component SortHeader inherits Rectangle {
     in property <string> active-key;
     in property <bool> descending;
     callback requested(string);
+    accessible-role: button;
+    accessible-label: label;
+    accessible-description: active-key == key ? (descending ? "Classificação decrescente" : "Classificação crescente") : "Não ordenado por esta coluna";
+    accessible-action-default => { root.requested(root.key); }
     min-width: 0px;
     height: 28px;
     background: transparent;
@@ -298,6 +312,7 @@ export component MainWindow inherits Window {
                 spacing: 2px;
                 Text {
                     text: agent-status;
+                    accessible-live-region: polite;
                     color: agent-connected && agent-startup-configured ? #77d7ad : #f0bd69;
                     font-size: 12px;
                     horizontal-alignment: right;
@@ -325,6 +340,10 @@ export component MainWindow inherits Window {
 
             Rectangle {
                 width: 164px;
+                accessible-role: tab-list;
+                accessible-label: "Navegação principal";
+                accessible-orientation: vertical;
+                accessible-item-count: 5;
                 background: #171e27;
                 border-color: #26313d;
                 border-width: 1px;
@@ -371,6 +390,7 @@ export component MainWindow inherits Window {
 
             Rectangle {
                 horizontal-stretch: 1;
+                accessible-role: main;
                 background: transparent;
 
                 if root.active-page == MainPage.overview: VerticalBox {
@@ -471,6 +491,7 @@ export component MainWindow inherits Window {
                                 LineEdit {
                                     width: 238px;
                                     placeholder-text: "Filtrar por nome ou PID";
+                                    accessible-label: "Filtrar processos por nome ou PID";
                                     input-type: search;
                                     edited(text) => { root.filter-edited(text); }
                                 }
@@ -573,6 +594,11 @@ export component MainWindow inherits Window {
                                 vertical-stretch: 1;
                                 for process in root.processes: Rectangle {
                                     height: 32px;
+                                    accessible-role: list-item;
+                                    accessible-label: process.name + ", PID " + process.pid + ", CPU " + process.cpu + ", memória " + process.memory + " MiB";
+                                    accessible-item-selectable: true;
+                                    accessible-item-selected: process.key == root.selected-process-key;
+                                    accessible-action-default => { process-row-hit-target.clicked(); }
                                     background: process.key == root.selected-process-key ? #263a4c : transparent;
                                     HorizontalLayout {
                                         spacing: 8px;
