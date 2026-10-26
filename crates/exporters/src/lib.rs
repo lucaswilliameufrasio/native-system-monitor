@@ -840,6 +840,10 @@ mod tests {
             .write_all(&oversized_header)
             .await
             .expect("send oversized header");
+        oversized_client
+            .shutdown()
+            .await
+            .expect("finish oversized request stream");
         let mut oversized_response = Vec::new();
         oversized_client
             .read_to_end(&mut oversized_response)
