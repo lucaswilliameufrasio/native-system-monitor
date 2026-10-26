@@ -85,11 +85,15 @@ fn is_whole_non_stacked_device(disk: &DiskCounters, sysfs_root: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{DiskCounters, is_whole_non_stacked_device, parse_diskstats};
+    #[cfg(target_os = "linux")]
+    use super::is_whole_non_stacked_device;
+    use super::{DiskCounters, parse_diskstats};
+    #[cfg(target_os = "linux")]
     use std::fs;
-    use std::path::Path;
+    #[cfg(target_os = "linux")]
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[cfg(target_os = "linux")]
     static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
     #[test]
@@ -180,6 +184,6 @@ mod tests {
             &sysfs,
         ));
 
-        fs::remove_dir_all(Path::new(&root)).expect("remove only this test's sysfs fixture");
+        fs::remove_dir_all(&root).expect("remove only this test's sysfs fixture");
     }
 }
