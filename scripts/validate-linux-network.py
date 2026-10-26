@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import platform
 import socket
@@ -42,14 +43,15 @@ def main() -> int:
         parser.error("this validation requires Linux /proc/net/dev")
     if not 1 <= args.size_mib <= 32:
         parser.error("--size-mib must be between 1 and 32")
-    if not pathlib.Path(args.monitorctl).is_file():
-        parser.error(f"monitorctl executable not found: {args.monitorctl}")
+    monitorctl_path = pathlib.Path(args.monitorctl)
+    if not monitorctl_path.is_file() or not os.access(monitorctl_path, os.X_OK):
+        parser.error(f"monitorctl executable not found or not executable: {args.monitorctl}")
 
     status = subprocess.run(
         [args.monitorctl, "status"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     if status.returncode != 0:
-        parser.error("a reachable native-monitor-agent is required; no agent was contacted")
+        parser.error("a reachable native-monitor-agent is required; this script will not start or stop it")
 
     payload_size = args.size_mib * 1024 * 1024
     received = 0
