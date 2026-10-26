@@ -70,7 +70,7 @@ fi
 
 directory="$(cd -- "$directory" && pwd -P)"
 filesystem="$(findmnt -T "$directory" -n -o FSTYPE,SOURCE,TARGET)"
-sample_directory="$(mktemp -d /tmp/opencode/native-monitor-block-io.XXXXXXXX)"
+sample_directory="$(mktemp -d "${TMPDIR:-/tmp}/native-monitor-block-io.XXXXXXXX")"
 sample_output="$sample_directory/sysfs-counters.tsv"
 stop_marker="$sample_directory/stop"
 temporary_file=""
