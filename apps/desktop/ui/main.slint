@@ -17,7 +17,20 @@ export struct CpuCoreRow {
     fraction: float,
 }
 
-enum MainPage { overview, processes, performance }
+export struct VolumeRow {
+    mount-point: string,
+    file-system: string,
+    total: string,
+    available: string,
+}
+
+export struct NetworkInterfaceRow {
+    name: string,
+    received: string,
+    transmitted: string,
+}
+
+enum MainPage { overview, processes, performance, storage, network }
 enum HistoryRange { one-minute, five-minutes }
 
 component MetricPanel inherits Rectangle {
@@ -221,6 +234,10 @@ export component MainWindow inherits Window {
     in-out property <string> selected-process-memory-percent: "—";
     in-out property <[ProcessRow]> processes: [];
     in-out property <[CpuCoreRow]> cpu-cores: [];
+    in-out property <[VolumeRow]> volumes: [];
+    in-out property <string> volume-status: "Aguardando conexão com o agente…";
+    in-out property <[NetworkInterfaceRow]> network-interfaces: [];
+    in-out property <string> network-status: "Aguardando conexão com o agente…";
     in-out property <[float]> cpu-history: [];
     in-out property <[float]> memory-history: [];
     in-out property <MainPage> active-page: MainPage.overview;
@@ -303,6 +320,16 @@ export component MainWindow inherits Window {
                         label: "Desempenho";
                         active: root.active-page == MainPage.performance;
                         activated => { root.active-page = MainPage.performance; }
+                    }
+                    NavigationItem {
+                        label: "Armazenamento";
+                        active: root.active-page == MainPage.storage;
+                        activated => { root.active-page = MainPage.storage; }
+                    }
+                    NavigationItem {
+                        label: "Rede";
+                        active: root.active-page == MainPage.network;
+                        activated => { root.active-page = MainPage.network; }
                     }
                     Rectangle { vertical-stretch: 1; background: transparent; }
                     Text {
@@ -628,6 +655,112 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                     Text { text: core.usage; color: #a6b3c2; width: 54px; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if root.active-page == MainPage.storage: VerticalBox {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        height: 32px;
+                        Text { text: "Armazenamento"; color: #edf2f7; font-size: 19px; }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Text { text: root.volumes.length + " volumes"; color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: #19212b;
+                        border-color: #2c3744;
+                        border-width: 1px;
+                        border-radius: 8px;
+
+                        VerticalBox {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                height: 28px;
+                                spacing: 8px;
+                                Text { text: "Ponto de montagem"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: "Sistema de arquivos"; color: #9eacbd; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Disponível"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Total"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                            }
+
+                            if root.volumes.length == 0: Text {
+                                vertical-stretch: 1;
+                                text: root.volume-status;
+                                color: #8493a5;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            if root.volumes.length > 0: ListView {
+                                vertical-stretch: 1;
+                                for volume in root.volumes: HorizontalLayout {
+                                    height: 32px;
+                                    spacing: 8px;
+                                    Text { text: volume.mount-point; color: #e5ebf2; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                                    Text { text: volume.file-system; color: #a6b3c2; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+                                    Text { text: volume.available; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: volume.total; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if root.active-page == MainPage.network: VerticalBox {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        height: 32px;
+                        Text { text: "Rede"; color: #edf2f7; font-size: 19px; }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Text { text: root.network-interfaces.length + " interfaces"; color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: #19212b;
+                        border-color: #2c3744;
+                        border-width: 1px;
+                        border-radius: 8px;
+
+                        VerticalBox {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                height: 28px;
+                                spacing: 8px;
+                                Text { text: "Interface"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: "Recebimento"; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Envio"; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                            }
+
+                            if root.network-interfaces.length == 0: Text {
+                                vertical-stretch: 1;
+                                text: root.network-status;
+                                color: #8493a5;
+                                font-size: 13px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            if root.network-interfaces.length > 0: ListView {
+                                vertical-stretch: 1;
+                                for interface in root.network-interfaces: HorizontalLayout {
+                                    height: 32px;
+                                    spacing: 8px;
+                                    Text { text: interface.name; color: #e5ebf2; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                                    Text { text: interface.received; color: #a6b3c2; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: interface.transmitted; color: #a6b3c2; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
                                 }
                             }
                         }

@@ -96,6 +96,17 @@ mod tests {
             protocol_minor: PROTOCOL_MINOR,
             snapshot: Some(Snapshot {
                 history_interval_ms: 2_500,
+                volumes: vec![crate::wire::VolumeMetrics {
+                    mount_point: "/".to_owned(),
+                    file_system: "ext4".to_owned(),
+                    total_bytes: Some(10_000),
+                    available_bytes: Some(4_000),
+                }],
+                network_interfaces: vec![crate::wire::NetworkInterfaceMetrics {
+                    name: "eth-test".to_owned(),
+                    received_bytes_per_second: Some(1_024.0),
+                    transmitted_bytes_per_second: None,
+                }],
                 ..Snapshot::default()
             }),
             ..Response::default()
@@ -109,12 +120,22 @@ mod tests {
             .await
             .expect("read snapshot response");
 
+        let snapshot = decoded.snapshot.expect("snapshot payload");
+        assert_eq!(snapshot.history_interval_ms, 2_500);
+        assert_eq!(snapshot.volumes.len(), 1);
+        assert_eq!(snapshot.volumes[0].mount_point, "/");
+        assert_eq!(snapshot.volumes[0].file_system, "ext4");
+        assert_eq!(snapshot.volumes[0].total_bytes, Some(10_000));
+        assert_eq!(snapshot.volumes[0].available_bytes, Some(4_000));
+        assert_eq!(snapshot.network_interfaces.len(), 1);
+        assert_eq!(snapshot.network_interfaces[0].name, "eth-test");
         assert_eq!(
-            decoded
-                .snapshot
-                .expect("snapshot payload")
-                .history_interval_ms,
-            2_500
+            snapshot.network_interfaces[0].received_bytes_per_second,
+            Some(1_024.0)
+        );
+        assert_eq!(
+            snapshot.network_interfaces[0].transmitted_bytes_per_second,
+            None
         );
     }
 

@@ -55,6 +55,18 @@ ordenação local da resposta limitada; portanto, esse fallback não promete ach
 processos que ficaram fora dos 1.000 enviados pelo agente antigo. Instalações
 pareadas na mesma versão mantêm a consulta global no agente.
 
+### Extensões M2 — volumes montados e interfaces (protocolo 1.3)
+
+`Snapshot` acrescenta a lista aditiva `volumes`, com ponto de montagem, sistema
+de arquivos, capacidade total e espaço disponível opcionais. Clientes antigos
+ignoram o campo; clientes novos verificam `protocol_minor >= 3` antes de
+interpretar uma lista vazia como ausência de volumes. O campo descreve volumes
+montados, não dispositivos físicos nem suas métricas de I/O. A lista aditiva
+`network_interfaces` contém nome local da interface e taxas de recebimento/envio
+derivadas dos counters desde a amostra anterior; taxas ausentes continuam
+ausentes. Os nomes não classificam interface física/virtual e não devem ser
+somados como se fossem tráfego físico sem deduplicação.
+
 O benchmark sintético M1 mede filtragem/ordenação de 10.000 processos e
 serialização protobuf da resposta limitada. Essa medição não substitui a medição
 end-to-end da interação e renderização da GUI.

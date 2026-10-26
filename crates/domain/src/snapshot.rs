@@ -37,11 +37,28 @@ pub struct MemoryMetrics {
     pub status: MetricStatus,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VolumeMetrics {
+    pub mount_point: String,
+    pub file_system: String,
+    pub total_bytes: Option<u64>,
+    pub available_bytes: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NetworkInterfaceMetrics {
+    pub name: String,
+    pub received_bytes_per_second: Option<f64>,
+    pub transmitted_bytes_per_second: Option<f64>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SystemSnapshot {
     pub captured_at_unix_ms: u64,
     pub cpu: CpuMetrics,
     pub memory: MemoryMetrics,
+    pub volumes: Vec<VolumeMetrics>,
+    pub network_interfaces: Vec<NetworkInterfaceMetrics>,
     pub processes: Vec<ProcessMetrics>,
     pub cpu_history_percent: Vec<f32>,
     pub memory_history_percent: Vec<f32>,
@@ -64,6 +81,8 @@ impl SystemSnapshot {
                 swap_used_bytes: None,
                 status: MetricStatus::WarmingUp,
             },
+            volumes: Vec::new(),
+            network_interfaces: Vec::new(),
             processes: Vec::new(),
             cpu_history_percent: Vec::new(),
             memory_history_percent: Vec::new(),

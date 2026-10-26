@@ -3,8 +3,9 @@ use crate::{
     frame::{read_message, write_message},
     wire::{
         Capability as WireCapability, CpuMetrics as WireCpuMetrics,
-        MemoryMetrics as WireMemoryMetrics, Operation, ProcessMetrics as WireProcessMetrics,
-        Request, Response, Snapshot as WireSnapshot,
+        MemoryMetrics as WireMemoryMetrics, NetworkInterfaceMetrics as WireNetworkInterfaceMetrics,
+        Operation, ProcessMetrics as WireProcessMetrics, Request, Response,
+        Snapshot as WireSnapshot, VolumeMetrics as WireVolumeMetrics,
     },
 };
 use anyhow::{Context, Result};
@@ -257,6 +258,25 @@ fn handle_request(
                     memory_history_percent: snapshot.memory_history_percent.clone(),
                     collection_status: snapshot.collection_status.clone(),
                     history_interval_ms,
+                    volumes: snapshot
+                        .volumes
+                        .iter()
+                        .map(|volume| WireVolumeMetrics {
+                            mount_point: volume.mount_point.clone(),
+                            file_system: volume.file_system.clone(),
+                            total_bytes: volume.total_bytes,
+                            available_bytes: volume.available_bytes,
+                        })
+                        .collect(),
+                    network_interfaces: snapshot
+                        .network_interfaces
+                        .iter()
+                        .map(|interface| WireNetworkInterfaceMetrics {
+                            name: interface.name.clone(),
+                            received_bytes_per_second: interface.received_bytes_per_second,
+                            transmitted_bytes_per_second: interface.transmitted_bytes_per_second,
+                        })
+                        .collect(),
                 }),
                 ..Response::default()
             }

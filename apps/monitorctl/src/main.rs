@@ -73,11 +73,125 @@ async fn run() -> Result<()> {
                 );
             }
         }
+        "devices" => {
+            let device_type = parse_device_options(arguments)?;
+            let response = client::request(Operation::Snapshot, 1, "")
+                .await
+                .context("request device snapshot")?;
+            if response.protocol_minor < 3 {
+                bail!("agent does not support disk or network device queries");
+            }
+            let snapshot = response
+                .snapshot
+                .context("agent did not return a device snapshot")?;
+
+            match device_type.as_str() {
+                "disk" => {
+                    println!(
+                        "{:<28} {:<16} {:>12} {:>12}",
+                        "mount point", "file system", "available", "total"
+                    );
+                    for volume in snapshot.volumes {
+                        println!(
+                            "{:<28} {:<16} {:>12} {:>12}",
+                            volume.mount_point,
+                            volume.file_system,
+                            format_bytes(volume.available_bytes),
+                            format_bytes(volume.total_bytes)
+                        );
+                    }
+                }
+                "network" => {
+                    println!(
+                        "{:<28} {:>16} {:>16}",
+                        "interface", "received", "transmitted"
+                    );
+                    for interface in snapshot.network_interfaces {
+                        println!(
+                            "{:<28} {:>16} {:>16}",
+                            interface.name,
+                            format_bytes_per_second(interface.received_bytes_per_second),
+                            format_bytes_per_second(interface.transmitted_bytes_per_second)
+                        );
+                    }
+                }
+                _ => bail!("--type must be disk or network"),
+            }
+        }
         "--help" | "-h" | "help" => print_help(),
         _ => bail!("unknown command {command}; use `monitorctl help`"),
     }
 
     Ok(())
+}
+
+fn parse_device_options(mut arguments: impl Iterator<Item = String>) -> Result<String> {
+    let mut device_type = None;
+
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--type" => {
+                if device_type.is_some() {
+                    bail!("--type may only be specified once");
+                }
+                device_type = Some(
+                    arguments
+                        .next()
+                        .context("--type requires disk or network")?,
+                );
+            }
+            _ => bail!("unknown devices option {argument}"),
+        }
+    }
+
+    let device_type = device_type.context("devices requires --type disk or network")?;
+    if device_type != "disk" && device_type != "network" {
+        bail!("--type must be disk or network");
+    }
+
+    Ok(device_type)
+}
+
+fn format_bytes(bytes: Option<u64>) -> String {
+    let Some(bytes) = bytes else {
+        return "—".to_owned();
+    };
+
+    const KIB: f64 = 1_024.0;
+    const MIB: f64 = KIB * 1_024.0;
+    const GIB: f64 = MIB * 1_024.0;
+
+    if bytes >= GIB as u64 {
+        format!("{:.1} GiB", bytes as f64 / GIB)
+    } else if bytes >= MIB as u64 {
+        format!("{:.1} MiB", bytes as f64 / MIB)
+    } else if bytes >= KIB as u64 {
+        format!("{:.1} KiB", bytes as f64 / KIB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+fn format_bytes_per_second(bytes_per_second: Option<f64>) -> String {
+    let Some(bytes_per_second) =
+        bytes_per_second.filter(|value| value.is_finite() && *value >= 0.0)
+    else {
+        return "—".to_owned();
+    };
+
+    const KIB: f64 = 1_024.0;
+    const MIB: f64 = KIB * 1_024.0;
+    const GIB: f64 = MIB * 1_024.0;
+
+    if bytes_per_second >= GIB {
+        format!("{:.1} GiB/s", bytes_per_second / GIB)
+    } else if bytes_per_second >= MIB {
+        format!("{:.1} MiB/s", bytes_per_second / MIB)
+    } else if bytes_per_second >= KIB {
+        format!("{:.1} KiB/s", bytes_per_second / KIB)
+    } else {
+        format!("{bytes_per_second:.0} B/s")
+    }
 }
 
 fn ensure_no_more_arguments(mut arguments: impl Iterator<Item = String>) -> Result<()> {
@@ -120,6 +234,49 @@ fn parse_process_options(mut arguments: impl Iterator<Item = String>) -> Result<
 
 fn print_help() {
     println!(
-        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]"
+        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl devices --type disk|network"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_bytes, format_bytes_per_second, parse_device_options};
+
+    #[test]
+    fn device_options_require_an_explicit_supported_type() {
+        assert_eq!(
+            parse_device_options(["--type".to_owned(), "disk".to_owned()].into_iter())
+                .expect("parse disk device option"),
+            "disk"
+        );
+        assert_eq!(
+            parse_device_options(["--type".to_owned(), "network".to_owned()].into_iter())
+                .expect("parse network device option"),
+            "network"
+        );
+        assert!(parse_device_options(std::iter::empty()).is_err());
+        assert!(parse_device_options(["--type".to_owned()].into_iter()).is_err());
+        assert!(parse_device_options(["--type".to_owned(), "gpu".to_owned()].into_iter()).is_err());
+        assert!(
+            parse_device_options(
+                [
+                    "--type".to_owned(),
+                    "disk".to_owned(),
+                    "--type".to_owned(),
+                    "disk".to_owned()
+                ]
+                .into_iter()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn byte_formatting_uses_iec_units_and_keeps_unknown_values_absent() {
+        assert_eq!(format_bytes(None), "—");
+        assert_eq!(format_bytes(Some(0)), "0 B");
+        assert_eq!(format_bytes(Some(1_536)), "1.5 KiB");
+        assert_eq!(format_bytes_per_second(None), "—");
+        assert_eq!(format_bytes_per_second(Some(1_536.0)), "1.5 KiB/s");
+    }
 }

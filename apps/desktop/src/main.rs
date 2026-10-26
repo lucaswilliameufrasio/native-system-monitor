@@ -17,6 +17,8 @@ const MAX_PROCESS_ROWS: usize = 1_000;
 const MAX_PROCESS_FILTER_CHARS: usize = 256;
 const MAX_CHART_POINTS: usize = 72;
 const PROCESS_QUERY_PROTOCOL_MINOR: u32 = 2;
+const VOLUME_QUERY_PROTOCOL_MINOR: u32 = 3;
+const NETWORK_QUERY_PROTOCOL_MINOR: u32 = 3;
 const ONE_MINUTE_MS: u64 = 60_000;
 const FIVE_MINUTES_MS: u64 = 300_000;
 
@@ -346,6 +348,48 @@ fn main() -> Result<()> {
                                         .collect::<Vec<_>>()
                                 })
                                 .unwrap_or_default();
+                            let volumes = snapshot
+                                .volumes
+                                .iter()
+                                .map(|volume| VolumeRow {
+                                    mount_point: SharedString::from(volume.mount_point.clone()),
+                                    file_system: SharedString::from(volume.file_system.clone()),
+                                    total: SharedString::from(format_bytes(volume.total_bytes)),
+                                    available: SharedString::from(format_bytes(
+                                        volume.available_bytes,
+                                    )),
+                                })
+                                .collect::<Vec<_>>();
+                            let volume_status =
+                                if response.protocol_minor < VOLUME_QUERY_PROTOCOL_MINOR {
+                                    "Agente sem suporte a volumes montados nesta versão".to_owned()
+                                } else if volumes.is_empty() {
+                                    "Nenhum volume montado disponível.".to_owned()
+                                } else {
+                                    String::new()
+                                };
+                            let network_interfaces = snapshot
+                                .network_interfaces
+                                .iter()
+                                .map(|interface| NetworkInterfaceRow {
+                                    name: SharedString::from(interface.name.clone()),
+                                    received: SharedString::from(format_bytes_per_second(
+                                        interface.received_bytes_per_second,
+                                    )),
+                                    transmitted: SharedString::from(format_bytes_per_second(
+                                        interface.transmitted_bytes_per_second,
+                                    )),
+                                })
+                                .collect::<Vec<_>>();
+                            let network_status = if response.protocol_minor
+                                < NETWORK_QUERY_PROTOCOL_MINOR
+                            {
+                                "Agente sem suporte a interfaces de rede nesta versão".to_owned()
+                            } else if network_interfaces.is_empty() {
+                                "Nenhuma interface de rede disponível.".to_owned()
+                            } else {
+                                String::new()
+                            };
                             let captured_at = snapshot.captured_at_unix_ms;
                             let selected_process_key = selected_process
                                 .as_ref()
@@ -400,6 +444,12 @@ fn main() -> Result<()> {
                                     clear_selected_process(&window);
                                 }
                                 window.set_processes(ModelRc::new(VecModel::from(rows)));
+                                window.set_volumes(ModelRc::new(VecModel::from(volumes)));
+                                window.set_volume_status(SharedString::from(volume_status));
+                                window.set_network_interfaces(ModelRc::new(VecModel::from(
+                                    network_interfaces,
+                                )));
+                                window.set_network_status(SharedString::from(network_status));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(cpu_cores)));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(cpu_history)));
                                 window.set_memory_history(ModelRc::new(VecModel::from(
@@ -443,6 +493,16 @@ fn main() -> Result<()> {
                                 window.set_selected_process_key(SharedString::from(""));
                                 clear_selected_process(&window);
                                 window.set_processes(ModelRc::new(VecModel::from(Vec::new())));
+                                window.set_volumes(ModelRc::new(VecModel::from(Vec::new())));
+                                window.set_volume_status(SharedString::from(
+                                    "Aguardando conexão com o agente…",
+                                ));
+                                window.set_network_interfaces(ModelRc::new(VecModel::from(
+                                    Vec::new(),
+                                )));
+                                window.set_network_status(SharedString::from(
+                                    "Aguardando conexão com o agente…",
+                                ));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_memory_history(ModelRc::new(VecModel::from(Vec::new())));
@@ -545,6 +605,48 @@ fn process_row(
 fn memory_percentage(used_bytes: u64, total_bytes: Option<u64>) -> Option<f64> {
     let total_bytes = total_bytes.filter(|total| *total > 0)?;
     Some(used_bytes as f64 / total_bytes as f64 * 100.0)
+}
+
+fn format_bytes(bytes: Option<u64>) -> String {
+    let Some(bytes) = bytes else {
+        return "—".to_owned();
+    };
+
+    const KIB: f64 = 1_024.0;
+    const MIB: f64 = KIB * 1_024.0;
+    const GIB: f64 = MIB * 1_024.0;
+
+    if bytes >= GIB as u64 {
+        format!("{:.1} GiB", bytes as f64 / GIB)
+    } else if bytes >= MIB as u64 {
+        format!("{:.1} MiB", bytes as f64 / MIB)
+    } else if bytes >= KIB as u64 {
+        format!("{:.1} KiB", bytes as f64 / KIB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+fn format_bytes_per_second(bytes_per_second: Option<f64>) -> String {
+    let Some(bytes_per_second) =
+        bytes_per_second.filter(|value| value.is_finite() && *value >= 0.0)
+    else {
+        return "—".to_owned();
+    };
+
+    const KIB: f64 = 1_024.0;
+    const MIB: f64 = KIB * 1_024.0;
+    const GIB: f64 = MIB * 1_024.0;
+
+    if bytes_per_second >= GIB {
+        format!("{:.1} GiB/s", bytes_per_second / GIB)
+    } else if bytes_per_second >= MIB {
+        format!("{:.1} MiB/s", bytes_per_second / MIB)
+    } else if bytes_per_second >= KIB {
+        format!("{:.1} KiB/s", bytes_per_second / KIB)
+    } else {
+        format!("{bytes_per_second:.0} B/s")
+    }
 }
 
 fn process_start_age_label(start_time_unix_seconds: u64, now_unix_seconds: u64) -> String {
@@ -795,10 +897,10 @@ fn initialize_logging() {
 mod tests {
     use super::{
         FIVE_MINUTES_MS, MainPage, MainWindow, ONE_MINUTE_MS, ProcessRow, ProcessSort, SortKey,
-        compare_optional_cpu, downsample_max, find_selected_process, lifecycle_status,
-        memory_percentage, memory_summary, metric_status_label, process_identity_key,
-        process_start_age_label, sample_age_label, select_history, sort_processes, swap_summary,
-        unavailable_status,
+        compare_optional_cpu, downsample_max, find_selected_process, format_bytes,
+        format_bytes_per_second, lifecycle_status, memory_percentage, memory_summary,
+        metric_status_label, process_identity_key, process_start_age_label, sample_age_label,
+        select_history, sort_processes, swap_summary, unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
@@ -860,6 +962,18 @@ mod tests {
         assert_eq!(memory_percentage(1_024, None), None);
         assert_eq!(memory_percentage(1_024, Some(0)), None);
         assert_eq!(memory_percentage(1_024, Some(4_096)), Some(25.0));
+    }
+
+    #[test]
+    fn byte_formatting_uses_iec_units_and_preserves_missing_values() {
+        assert_eq!(format_bytes(None), "—");
+        assert_eq!(format_bytes(Some(0)), "0 B");
+        assert_eq!(format_bytes(Some(1_536)), "1.5 KiB");
+        assert_eq!(format_bytes(Some(1_572_864)), "1.5 MiB");
+        assert_eq!(format_bytes(Some(1_610_612_736)), "1.5 GiB");
+        assert_eq!(format_bytes_per_second(None), "—");
+        assert_eq!(format_bytes_per_second(Some(1_536.0)), "1.5 KiB/s");
+        assert_eq!(format_bytes_per_second(Some(f64::NAN)), "—");
     }
 
     #[test]
