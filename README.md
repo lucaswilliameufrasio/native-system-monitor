@@ -51,6 +51,18 @@ cargo run -p native-monitorctl -- devices --type gpu
 cargo run -p native-monitorctl -- devices --type battery
 ```
 
+Para validar tendências de I/O físico Linux contra `iostat` (sysstat), há um
+ensaio manual opt-in e limitado. Ele precisa de um agente já ativo e de um
+diretório escolhido pelo operador no filesystem que deseja testar; escreve e
+lê um arquivo temporário (64 MiB por padrão, máximo 256 MiB) e o remove ao sair:
+
+```sh
+scripts/validate-linux-block-io.sh --directory /caminho/no/filesystem
+```
+
+Revise o espaço livre e o destino antes de executar. O ensaio não instala
+dependências, não pede privilégios e não substitui validação nativa em cada OS.
+
 Em desenvolvimento, o registro aponta para os binários em `target/debug`; apagar
 ou mover esse diretório invalida o início automático registrado. Para um teste
 manual isolado do IPC, ainda é possível iniciar `cargo run -p
