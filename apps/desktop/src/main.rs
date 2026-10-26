@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{debug, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -377,6 +377,10 @@ fn main() -> Result<()> {
             let mut startup_mode = None;
             let mut startup_error = None;
             let mut startup_configured = false;
+            let mut cached_tree_key = None::<String>;
+            let mut cached_tree_rows = Vec::new();
+            let mut cached_tree_status = String::new();
+            let mut last_tree_refresh = None::<Instant>;
 
             while !worker_stop.load(Ordering::Acquire) {
                 let locale = Locale::from_code(worker_locale.load(Ordering::Acquire));
@@ -449,6 +453,80 @@ fn main() -> Result<()> {
                                 sort_processes(&mut processes, sort);
                             }
                             processes.truncate(MAX_PROCESS_ROWS);
+
+                            match selected_process_key.as_deref() {
+                                Some(key) => {
+                                    let selection_changed = cached_tree_key.as_deref() != Some(key);
+                                    let refresh_due = last_tree_refresh
+                                        .is_none_or(|last| last.elapsed() >= Duration::from_secs(5));
+                                    if selection_changed {
+                                        cached_tree_key = Some(key.to_owned());
+                                        cached_tree_rows.clear();
+                                        cached_tree_status = if locale == Locale::EnUs {
+                                            "Loading process tree…".to_owned()
+                                        } else {
+                                            "Carregando árvore de processos…".to_owned()
+                                        };
+                                        last_tree_refresh = None;
+                                    }
+                                    if (selection_changed || refresh_due)
+                                        && let Some(process) = find_selected_process(&processes, key)
+                                    {
+                                        let tree_response = runtime.block_on(
+                                            client::request_process_tree(
+                                                process.pid,
+                                                process.start_time_unix_seconds,
+                                            ),
+                                        );
+                                        last_tree_refresh = Some(Instant::now());
+                                        match tree_response {
+                                            Ok(tree_response) => {
+                                                if let Some(tree_snapshot) = tree_response.snapshot {
+                                                    cached_tree_rows =
+                                                        process_tree_rows(&tree_snapshot.processes);
+                                                    cached_tree_status = if tree_snapshot.process_tree_truncated {
+                                                        if locale == Locale::EnUs {
+                                                            "Tree truncated at the response limit.".to_owned()
+                                                        } else {
+                                                            "Árvore truncada no limite da resposta.".to_owned()
+                                                        }
+                                                    } else if cached_tree_rows.is_empty() {
+                                                        if locale == Locale::EnUs {
+                                                            "No process tree data available.".to_owned()
+                                                        } else {
+                                                            "Nenhum dado de árvore disponível.".to_owned()
+                                                        }
+                                                    } else {
+                                                        String::new()
+                                                    };
+                                                }
+                                            }
+                                            Err(error) => {
+                                                cached_tree_rows.clear();
+                                                cached_tree_status = if format!("{error:#}").contains("process_not_found") {
+                                                    if locale == Locale::EnUs {
+                                                        "The selected process no longer exists.".to_owned()
+                                                    } else {
+                                                        "O processo selecionado não existe mais.".to_owned()
+                                                    }
+                                                } else if locale == Locale::EnUs {
+                                                    "Could not load the process tree.".to_owned()
+                                                } else {
+                                                    "Não foi possível carregar a árvore de processos.".to_owned()
+                                                };
+                                            }
+                                        }
+                                    }
+                                }
+                                None => {
+                                    cached_tree_key = None;
+                                    cached_tree_rows.clear();
+                                    cached_tree_status.clear();
+                                    last_tree_refresh = None;
+                                }
+                            }
+                            let process_tree = cached_tree_rows.clone();
+                            let process_tree_status = cached_tree_status.clone();
 
                             let selected_process = selected_process_key
                                 .as_deref()
@@ -744,6 +822,8 @@ fn main() -> Result<()> {
                                 window
                                     .set_process_count(SharedString::from(rows.len().to_string()));
                                 window.set_selected_process_key(selected_process_key);
+                                window.set_process_tree(ModelRc::new(VecModel::from(process_tree)));
+                                window.set_process_tree_status(SharedString::from(process_tree_status));
                                 if let Some(process) = selected_process {
                                     window.set_has_selected_process(true);
                                     window.set_selected_process_name(process.name);
@@ -942,6 +1022,24 @@ fn process_row(
     }
 }
 
+fn process_tree_rows(processes: &[ProcessMetrics]) -> Vec<ProcessTreeRow> {
+    let mut depths = std::collections::HashMap::<u32, i32>::with_capacity(processes.len());
+    let mut rows = Vec::with_capacity(processes.len());
+    for process in processes {
+        let depth = process
+            .parent_pid
+            .and_then(|parent_pid| depths.get(&parent_pid).copied())
+            .map(|parent_depth| parent_depth.saturating_add(1))
+            .unwrap_or(0);
+        depths.insert(process.pid, depth);
+        rows.push(ProcessTreeRow {
+            label: SharedString::from(format!("{} (PID {})", process.name, process.pid)),
+            depth,
+        });
+    }
+    rows
+}
+
 fn memory_percentage(used_bytes: u64, total_bytes: Option<u64>) -> Option<f64> {
     let total_bytes = total_bytes.filter(|total| *total > 0)?;
     Some(used_bytes as f64 / total_bytes as f64 * 100.0)
@@ -1033,6 +1131,8 @@ fn clear_selected_process(window: &MainWindow) {
     window.set_selected_process_cpu(SharedString::from("—"));
     window.set_selected_process_memory(SharedString::from("—"));
     window.set_selected_process_memory_percent(SharedString::from("—"));
+    window.set_process_tree(ModelRc::new(VecModel::from(Vec::new())));
+    window.set_process_tree_status(SharedString::from(""));
 }
 
 fn sort_processes(processes: &mut [ProcessMetrics], sort: ProcessSort) {
@@ -1342,8 +1442,8 @@ mod tests {
         FIVE_MINUTES_MS, Locale, MainPage, MainWindow, ONE_MINUTE_MS, ProcessRow, ProcessSort,
         SortKey, UiLanguage, compare_optional_cpu, downsample_max, find_selected_process,
         format_bytes, format_bytes_per_second, lifecycle_status, memory_percentage, memory_summary,
-        metric_status_label, process_identity_key, process_start_age_label, sample_age_label,
-        select_history, sort_processes, swap_summary, unavailable_status,
+        metric_status_label, process_identity_key, process_start_age_label, process_tree_rows,
+        sample_age_label, select_history, sort_processes, swap_summary, unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
@@ -1463,6 +1563,23 @@ mod tests {
             process_identity_key(&replacement)
         );
         assert_eq!(process_identity_key(&original), "42:1");
+    }
+
+    #[test]
+    fn process_tree_rows_preserve_breadth_first_order_and_depth() {
+        let rows = process_tree_rows(&[
+            process(10, "root", Some(1.0), 10, None),
+            process(11, "child", Some(2.0), 20, Some(10)),
+            process(12, "grandchild", Some(3.0), 30, Some(11)),
+            process(13, "sibling", Some(4.0), 40, Some(10)),
+        ]);
+
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].label.as_str(), "root (PID 10)");
+        assert_eq!(rows[0].depth, 0);
+        assert_eq!(rows[1].depth, 1);
+        assert_eq!(rows[2].depth, 2);
+        assert_eq!(rows[3].depth, 1);
     }
 
     #[test]

@@ -11,6 +11,11 @@ export struct ProcessRow {
     memory-percent: string,
 }
 
+export struct ProcessTreeRow {
+    label: string,
+    depth: int,
+}
+
 export struct CpuCoreRow {
     name: string,
     usage: string,
@@ -271,6 +276,8 @@ export component MainWindow inherits Window {
     in-out property <string> selected-process-cpu: "—";
     in-out property <string> selected-process-memory: "—";
     in-out property <string> selected-process-memory-percent: "—";
+    in-out property <[ProcessTreeRow]> process-tree: [];
+    in-out property <string> process-tree-status: "";
     in-out property <[ProcessRow]> processes: [];
     in-out property <[CpuCoreRow]> cpu-cores: [];
     in-out property <[VolumeRow]> volumes: [];
@@ -593,6 +600,38 @@ export component MainWindow inherits Window {
                                     color: #8493a5;
                                     font-size: 11px;
                                     vertical-alignment: center;
+                                }
+                            }
+
+                            if root.has-selected-process: Rectangle {
+                                height: 124px;
+                                background: #19212b;
+                                border-color: #2c3744;
+                                border-width: 1px;
+                                border-radius: 6px;
+                                VerticalBox {
+                                    padding: 8px;
+                                    spacing: 4px;
+                                    Text {
+                                        text: root.language == UiLanguage.en_us ? "Process tree (read-only)" : "Árvore de processos (somente leitura)";
+                                        color: #e4ebf3;
+                                        font-size: 12px;
+                                    }
+                                    if root.process-tree.length == 0: Text {
+                                        text: root.process-tree-status;
+                                        color: #8493a5;
+                                        font-size: 11px;
+                                    }
+                                    if root.process-tree.length > 0: ListView {
+                                        vertical-stretch: 1;
+                                        for item in root.process-tree: Text {
+                                            x: item.depth * 14px;
+                                            height: 20px;
+                                            text: item.label;
+                                            color: #a6b3c2;
+                                            font-size: 11px;
+                                        }
+                                    }
                                 }
                             }
 
