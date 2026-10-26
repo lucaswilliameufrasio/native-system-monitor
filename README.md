@@ -73,7 +73,12 @@ O caminho opcional de configuração é TOML:
 
 ```sh
 cargo run -p native-monitor-agent -- run docs/settings.example.toml
+cargo run -p native-monitorctl -- processes --limit 1000
+cargo run -p native-monitorctl -- process-tree 1234:1700000000
 ```
+
+`process-tree` exige PID e hora de início exatos mostrados pela lista; a operação
+é somente leitura e sinaliza quando a árvore excede o limite de resposta.
 
 O endpoint de scrape Prometheus é opcional e permanece desativado no exemplo.
 Para habilitá-lo, altere `[export.prometheus]` para `enabled = true`; ele só

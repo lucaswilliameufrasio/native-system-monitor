@@ -35,8 +35,27 @@ pub async fn request_with_process_query(
         process_filter: process_filter.to_owned(),
         sort_descending,
         process_sort_key: sort_by.to_owned(),
+        process_pid: 0,
+        process_start_time_unix_seconds: 0,
     };
 
+    exchange(request).await
+}
+
+pub async fn request_process_tree(pid: u32, start_time_unix_seconds: u64) -> Result<Response> {
+    let request = Request {
+        protocol_major: PROTOCOL_MAJOR,
+        protocol_minor: PROTOCOL_MINOR,
+        operation: Operation::ProcessTree as i32,
+        process_limit: 1_000,
+        process_pid: pid,
+        process_start_time_unix_seconds: start_time_unix_seconds,
+        ..Request::default()
+    };
+    exchange(request).await
+}
+
+async fn exchange(request: Request) -> Result<Response> {
     let response: Response = timeout(REQUEST_TIMEOUT, async {
         let mut stream = connect()
             .await

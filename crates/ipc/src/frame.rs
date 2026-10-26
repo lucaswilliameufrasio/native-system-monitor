@@ -78,6 +78,8 @@ mod tests {
             process_filter: "browser".to_owned(),
             sort_descending: Some(true),
             process_sort_key: "name".to_owned(),
+            process_pid: 0,
+            process_start_time_unix_seconds: 0,
         };
         let (mut sender, mut receiver) = tokio::io::duplex(512);
 

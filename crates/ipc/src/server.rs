@@ -159,74 +159,104 @@ fn handle_request(
                 .collect(),
             ..Response::default()
         },
-        Operation::Snapshot | Operation::Processes => {
-            let sort_by = if request.process_sort_key.is_empty() {
-                if request.sort_by.is_empty() {
-                    "cpu"
-                } else {
-                    request.sort_by.as_str()
-                }
-            } else {
-                request.process_sort_key.as_str()
-            };
-            if !matches!(
-                sort_by,
-                "cpu" | "memory" | "name" | "pid" | "parent" | "start"
-            ) {
-                return error_response(
-                    "invalid_sort",
-                    "sort_by must be cpu, memory, name, pid, parent, or start".to_owned(),
-                );
-            }
-            if request.process_filter.chars().count() > MAX_PROCESS_FILTER_CHARS {
-                return error_response(
-                    "invalid_filter",
-                    format!("process_filter must be at most {MAX_PROCESS_FILTER_CHARS} characters"),
-                );
-            }
-            let sort_descending = request
-                .sort_descending
-                .unwrap_or(matches!(sort_by, "cpu" | "memory"));
-            let process_filter = request.process_filter.to_lowercase();
-            let mut processes = Vec::with_capacity(snapshot.processes.len());
-            for process in &snapshot.processes {
-                let normalized_name = if !process_filter.is_empty() || sort_by == "name" {
-                    Some(process.name.to_lowercase())
-                } else {
-                    None
-                };
-                let matches_filter = process_filter.is_empty()
-                    || normalized_name
-                        .as_ref()
-                        .is_some_and(|name| name.contains(&process_filter))
-                    || process.identity.pid.to_string().contains(&process_filter);
-                if matches_filter {
-                    processes.push((process, normalized_name));
-                }
-            }
-            processes.sort_by(|(left, left_name), (right, right_name)| {
-                compare_processes(
-                    left,
-                    right,
-                    left_name.as_deref(),
-                    right_name.as_deref(),
-                    sort_by,
-                    sort_descending,
-                )
-            });
-
+        Operation::Snapshot | Operation::Processes | Operation::ProcessTree => {
             let limit = if request.process_limit == 0 {
                 100
             } else {
                 request.process_limit as usize
             }
-            .min(MAX_PROCESSES_PER_RESPONSE);
-            let limit = limit.min(max_processes_per_response.max(1));
+            .min(MAX_PROCESSES_PER_RESPONSE)
+            .min(max_processes_per_response.max(1));
+            let (processes, process_tree_truncated): (Vec<_>, bool) = if operation
+                == Operation::ProcessTree
+            {
+                if request.process_pid == 0 || request.process_start_time_unix_seconds == 0 {
+                    return error_response(
+                        "invalid_process_identity",
+                        "process tree requires a nonzero PID and start time".to_owned(),
+                    );
+                }
+                let Some(tree) = process_tree(
+                    snapshot,
+                    request.process_pid,
+                    request.process_start_time_unix_seconds,
+                    limit,
+                ) else {
+                    return error_response(
+                        "process_not_found",
+                        "process identity is not present in the current snapshot".to_owned(),
+                    );
+                };
+                tree
+            } else {
+                let sort_by = if request.process_sort_key.is_empty() {
+                    if request.sort_by.is_empty() {
+                        "cpu"
+                    } else {
+                        request.sort_by.as_str()
+                    }
+                } else {
+                    request.process_sort_key.as_str()
+                };
+                if !matches!(
+                    sort_by,
+                    "cpu" | "memory" | "name" | "pid" | "parent" | "start"
+                ) {
+                    return error_response(
+                        "invalid_sort",
+                        "sort_by must be cpu, memory, name, pid, parent, or start".to_owned(),
+                    );
+                }
+                if request.process_filter.chars().count() > MAX_PROCESS_FILTER_CHARS {
+                    return error_response(
+                        "invalid_filter",
+                        format!(
+                            "process_filter must be at most {MAX_PROCESS_FILTER_CHARS} characters"
+                        ),
+                    );
+                }
+                let sort_descending = request
+                    .sort_descending
+                    .unwrap_or(matches!(sort_by, "cpu" | "memory"));
+                let process_filter = request.process_filter.to_lowercase();
+                let mut processes = Vec::with_capacity(snapshot.processes.len());
+                for process in &snapshot.processes {
+                    let normalized_name = if !process_filter.is_empty() || sort_by == "name" {
+                        Some(process.name.to_lowercase())
+                    } else {
+                        None
+                    };
+                    let matches_filter = process_filter.is_empty()
+                        || normalized_name
+                            .as_ref()
+                            .is_some_and(|name| name.contains(&process_filter))
+                        || process.identity.pid.to_string().contains(&process_filter);
+                    if matches_filter {
+                        processes.push((process, normalized_name));
+                    }
+                }
+                processes.sort_by(|(left, left_name), (right, right_name)| {
+                    compare_processes(
+                        left,
+                        right,
+                        left_name.as_deref(),
+                        right_name.as_deref(),
+                        sort_by,
+                        sort_descending,
+                    )
+                });
+
+                let processes = processes
+                    .into_iter()
+                    .take(limit)
+                    .map(|(process, _normalized_name)| process)
+                    .collect::<Vec<_>>();
+                (processes, false)
+            };
 
             let processes = processes
                 .into_iter()
-                .take(limit)
-                .map(|(process, _normalized_name)| WireProcessMetrics {
+                .map(|process| WireProcessMetrics {
                     pid: process.identity.pid,
                     parent_pid: process.parent_pid,
                     name: process.name.clone(),
@@ -257,6 +287,7 @@ fn handle_request(
                     processes,
                     cpu_history_percent: snapshot.cpu_history_percent.clone(),
                     memory_history_percent: snapshot.memory_history_percent.clone(),
+                    process_tree_truncated,
                     collection_status: snapshot.collection_status.clone(),
                     history_interval_ms,
                     volumes: snapshot
@@ -336,6 +367,56 @@ fn handle_request(
             error_response("invalid_operation", "operation is required".to_owned())
         }
     }
+}
+
+fn process_tree(
+    snapshot: &SystemSnapshot,
+    pid: u32,
+    start_time_unix_seconds: u64,
+    limit: usize,
+) -> Option<(Vec<&native_monitor_domain::ProcessMetrics>, bool)> {
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    let root = snapshot.processes.iter().find(|process| {
+        process.identity.pid == pid
+            && process.identity.start_time_unix_seconds == start_time_unix_seconds
+    })?;
+    let mut children_by_parent = HashMap::<u32, Vec<&native_monitor_domain::ProcessMetrics>>::new();
+    for process in &snapshot.processes {
+        if let Some(parent_pid) = process.parent_pid {
+            children_by_parent
+                .entry(parent_pid)
+                .or_default()
+                .push(process);
+        }
+    }
+    for children in children_by_parent.values_mut() {
+        children.sort_by_key(|process| process.identity.pid);
+    }
+
+    let mut result = vec![root];
+    let mut queue = VecDeque::from([root]);
+    let mut visited = HashSet::from([root.identity]);
+    let mut truncated = false;
+
+    while let Some(parent) = queue.pop_front() {
+        let Some(children) = children_by_parent.get(&parent.identity.pid) else {
+            continue;
+        };
+        for child in children {
+            if !visited.insert(child.identity) {
+                continue;
+            }
+            if result.len() >= limit {
+                truncated = true;
+                continue;
+            }
+            result.push(child);
+            queue.push_back(child);
+        }
+    }
+
+    Some((result, truncated))
 }
 
 fn compare_processes(
@@ -763,6 +844,143 @@ mod tests {
         let processes = response.snapshot.expect("snapshot response").processes;
         assert_eq!(processes.len(), 1);
         assert_eq!(processes[0].pid, 21);
+    }
+
+    #[test]
+    fn process_tree_uses_exact_identity_and_returns_descendants_breadth_first() {
+        use native_monitor_domain::{ProcessIdentity, ProcessMetrics};
+
+        let mut source = SystemSnapshot::starting();
+        source.processes = vec![
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 10,
+                    start_time_unix_seconds: 100,
+                },
+                parent_pid: Some(1),
+                name: "root".to_owned(),
+                cpu_usage_percent: Some(1.0),
+                memory_bytes: 10,
+            },
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 11,
+                    start_time_unix_seconds: 110,
+                },
+                parent_pid: Some(10),
+                name: "child-a".to_owned(),
+                cpu_usage_percent: Some(2.0),
+                memory_bytes: 20,
+            },
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 12,
+                    start_time_unix_seconds: 120,
+                },
+                parent_pid: Some(10),
+                name: "child-b".to_owned(),
+                cpu_usage_percent: Some(3.0),
+                memory_bytes: 30,
+            },
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 13,
+                    start_time_unix_seconds: 130,
+                },
+                parent_pid: Some(11),
+                name: "grandchild".to_owned(),
+                cpu_usage_percent: Some(4.0),
+                memory_bytes: 40,
+            },
+            ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid: 14,
+                    start_time_unix_seconds: 140,
+                },
+                parent_pid: None,
+                name: "unrelated".to_owned(),
+                cpu_usage_percent: Some(5.0),
+                memory_bytes: 50,
+            },
+        ];
+
+        let response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                operation: Operation::ProcessTree as i32,
+                process_pid: 10,
+                process_start_time_unix_seconds: 100,
+                process_limit: 10,
+                ..Request::default()
+            },
+            &source,
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+
+        let snapshot = response.snapshot.expect("process tree snapshot");
+        assert_eq!(
+            snapshot
+                .processes
+                .iter()
+                .map(|process| process.pid)
+                .collect::<Vec<_>>(),
+            vec![10, 11, 12, 13]
+        );
+        assert!(!snapshot.process_tree_truncated);
+    }
+
+    #[test]
+    fn process_tree_rejects_stale_identity_and_reports_truncation() {
+        use native_monitor_domain::{ProcessIdentity, ProcessMetrics};
+
+        let mut source = SystemSnapshot::starting();
+        source.processes = (10..14)
+            .map(|pid| ProcessMetrics {
+                identity: ProcessIdentity {
+                    pid,
+                    start_time_unix_seconds: u64::from(pid),
+                },
+                parent_pid: (pid != 10).then_some(10),
+                name: format!("process-{pid}"),
+                cpu_usage_percent: None,
+                memory_bytes: 0,
+            })
+            .collect();
+
+        let stale = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                operation: Operation::ProcessTree as i32,
+                process_pid: 10,
+                process_start_time_unix_seconds: 999,
+                ..Request::default()
+            },
+            &source,
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+        assert_eq!(stale.error_code, "process_not_found");
+
+        let truncated = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                operation: Operation::ProcessTree as i32,
+                process_pid: 10,
+                process_start_time_unix_seconds: 10,
+                process_limit: 2,
+                ..Request::default()
+            },
+            &source,
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+        let snapshot = truncated.snapshot.expect("truncated tree snapshot");
+        assert_eq!(snapshot.processes.len(), 2);
+        assert!(snapshot.process_tree_truncated);
     }
 
     #[test]

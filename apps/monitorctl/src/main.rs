@@ -51,8 +51,8 @@ async fn run() -> Result<()> {
                 .context("agent did not return a process snapshot")?;
 
             println!(
-                "{:<8} {:<9} {:>8} {:>12}  name",
-                "PID", "PPID", "CPU %", "RAM MiB"
+                "{:<8} {:<9} {:<12} {:>8} {:>12}  name",
+                "PID", "PPID", "START (UNIX)", "CPU %", "RAM MiB"
             );
             for process in snapshot.processes {
                 let parent_pid = process
@@ -64,13 +64,46 @@ async fn run() -> Result<()> {
                     .map(|value| format!("{value:.1}"))
                     .unwrap_or_else(|| "—".to_owned());
                 println!(
-                    "{:<8} {:<9} {:>8} {:>12.1}  {}",
+                    "{:<8} {:<9} {:<12} {:>8} {:>12.1}  {}",
                     process.pid,
                     parent_pid,
+                    process.start_time_unix_seconds,
                     cpu_usage,
                     process.memory_bytes as f64 / (1024.0 * 1024.0),
                     process.name
                 );
+            }
+        }
+        "process-tree" => {
+            let (pid, start_time_unix_seconds) = parse_process_identity(arguments)?;
+            let response = client::request_process_tree(pid, start_time_unix_seconds)
+                .await
+                .context("request process tree for the exact process identity")?;
+            let snapshot = response
+                .snapshot
+                .context("agent did not return a process tree snapshot")?;
+            let mut depth_by_pid = std::collections::HashMap::new();
+            for process in &snapshot.processes {
+                let depth = process
+                    .parent_pid
+                    .and_then(|parent_pid| depth_by_pid.get(&parent_pid).copied())
+                    .map_or(0, |parent_depth: usize| parent_depth.saturating_add(1));
+                depth_by_pid.insert(process.pid, depth);
+                let indent = "  ".repeat(depth.min(64));
+                println!(
+                    "{indent}{} (PID {}, start {}) — CPU {}%, RAM {:.1} MiB",
+                    process.name,
+                    process.pid,
+                    process.start_time_unix_seconds,
+                    process
+                        .cpu_usage_percent
+                        .map(|value| format!("{value:.1}"))
+                        .unwrap_or_else(|| "—".to_owned()),
+                    process.memory_bytes as f64 / (1024.0 * 1024.0)
+                );
+            }
+            if snapshot.process_tree_truncated {
+                println!("Tree truncated at the configured process response limit.");
             }
         }
         "devices" => {
@@ -348,6 +381,26 @@ fn ensure_no_more_arguments(mut arguments: impl Iterator<Item = String>) -> Resu
     Ok(())
 }
 
+fn parse_process_identity(mut arguments: impl Iterator<Item = String>) -> Result<(u32, u64)> {
+    let identity = arguments
+        .next()
+        .context("process-tree requires PID:START_UNIX_SECONDS")?;
+    ensure_no_more_arguments(arguments)?;
+    let (pid, start_time) = identity
+        .split_once(':')
+        .context("process identity must have the form PID:START_UNIX_SECONDS")?;
+    let pid = pid
+        .parse::<u32>()
+        .context("process PID must be a positive integer")?;
+    let start_time = start_time
+        .parse::<u64>()
+        .context("process start time must be an integer Unix timestamp")?;
+    if pid == 0 || start_time == 0 {
+        bail!("process PID and start time must both be greater than zero");
+    }
+    Ok((pid, start_time))
+}
+
 fn parse_process_options(mut arguments: impl Iterator<Item = String>) -> Result<(String, u32)> {
     let mut sort_by = "cpu".to_owned();
     let mut limit = 25_u32;
@@ -380,13 +433,29 @@ fn parse_process_options(mut arguments: impl Iterator<Item = String>) -> Result<
 
 fn print_help() {
     println!(
-        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl devices --type disk|network|block|gpu|battery"
+        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl process-tree PID:START_UNIX_SECONDS\n  monitorctl devices --type disk|network|block|gpu|battery"
     );
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{format_bytes, format_bytes_per_second, parse_device_options};
+    use super::{
+        format_bytes, format_bytes_per_second, parse_device_options, parse_process_identity,
+    };
+
+    #[test]
+    fn process_tree_requires_a_positive_pid_and_exact_start_time() {
+        assert_eq!(
+            parse_process_identity(["42:1700000000".to_owned()].into_iter())
+                .expect("parse process identity"),
+            (42, 1_700_000_000)
+        );
+        assert!(parse_process_identity(std::iter::empty()).is_err());
+        assert!(parse_process_identity(["42".to_owned()].into_iter()).is_err());
+        assert!(parse_process_identity(["0:42".to_owned()].into_iter()).is_err());
+        assert!(parse_process_identity(["42:0".to_owned()].into_iter()).is_err());
+        assert!(parse_process_identity(["42:42:42".to_owned()].into_iter()).is_err());
+    }
 
     #[test]
     fn device_options_require_an_explicit_supported_type() {

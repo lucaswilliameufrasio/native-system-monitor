@@ -8,6 +8,7 @@ enum Operation {
   OPERATION_CAPABILITIES = 2;
   OPERATION_SNAPSHOT = 3;
   OPERATION_PROCESSES = 4;
+  OPERATION_PROCESS_TREE = 5;
 }
 
 message Request {
@@ -19,6 +20,8 @@ message Request {
   string process_filter = 6;
   optional bool sort_descending = 7;
   string process_sort_key = 8;
+  uint32 process_pid = 9;
+  uint64 process_start_time_unix_seconds = 10;
 }
 
 message Response {
@@ -54,6 +57,7 @@ message Snapshot {
   string gpu_status = 14;
   repeated BatteryMetrics batteries = 15;
   string battery_status = 16;
+  bool process_tree_truncated = 17;
 }
 
 message CpuMetrics {
