@@ -15,7 +15,8 @@ uniformes.
 ## Decisão
 
 - Usar `sysinfo` como baseline multiplataforma para enumerar volumes montados,
-  sistema de arquivos, capacidade total e espaço disponível.
+  sistema de arquivos, capacidade total, espaço disponível e deltas de I/O por
+  filesystem normalizados pelo tempo monotônico entre refreshes.
 - Tratar o ponto de montagem como identidade local da entrada montada, não como
   ID estável de disco físico. Não inferir relação volume → dispositivo nem
   atribuir I/O físico, latência, temperatura ou saúde a partir desses dados.
@@ -37,7 +38,8 @@ uniformes.
 ## Consequências e revisão
 
 A tela Armazenamento e `monitorctl devices --type disk` mostram somente volumes
-montados e capacidade. Hotplug é reenumerado no ciclo de coleta, sujeito à
-validação de cada OS. O restante de M2 precisa acrescentar interfaces de rede e
-adaptadores/fontes de I/O sem alterar essa distinção. Rever a escolha do baseline
-se testes reais mostrarem omissões, bloqueios ou custo excessivo de sondagem.
+montados, capacidade e taxas de I/O do filesystem. Hotplug é reenumerado no
+ciclo de coleta, sujeito à validação de cada OS. Taxas de volume não substituem
+I/O físico; M2 ainda depende de adaptadores nativos e ensaios independentes por
+OS. Rever a escolha do baseline se testes reais mostrarem omissões, bloqueios ou
+custo excessivo de sondagem.

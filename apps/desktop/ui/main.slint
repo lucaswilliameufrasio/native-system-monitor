@@ -22,6 +22,8 @@ export struct VolumeRow {
     file-system: string,
     total: string,
     available: string,
+    read-rate: string,
+    write-rate: string,
 }
 
 export struct NetworkInterfaceRow {
@@ -697,6 +699,8 @@ export component MainWindow inherits Window {
                                 height: 28px;
                                 spacing: 8px;
                                 Text { text: "Ponto de montagem"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: "Leitura"; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Escrita"; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
                                 Text { text: "Sistema de arquivos"; color: #9eacbd; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; }
                                 Text { text: "Disponível"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
                                 Text { text: "Total"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
@@ -717,6 +721,8 @@ export component MainWindow inherits Window {
                                     height: 32px;
                                     spacing: 8px;
                                     Text { text: volume.mount-point; color: #e5ebf2; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                                    Text { text: volume.read-rate; color: #a6b3c2; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: volume.write-rate; color: #a6b3c2; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: volume.file-system; color: #a6b3c2; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
                                     Text { text: volume.available; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: volume.total; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }

@@ -101,6 +101,8 @@ mod tests {
                     file_system: "ext4".to_owned(),
                     total_bytes: Some(10_000),
                     available_bytes: Some(4_000),
+                    read_bytes_per_second: Some(512.0),
+                    write_bytes_per_second: None,
                 }],
                 network_interfaces: vec![crate::wire::NetworkInterfaceMetrics {
                     name: "eth-test".to_owned(),
@@ -137,6 +139,8 @@ mod tests {
         assert_eq!(snapshot.volumes[0].file_system, "ext4");
         assert_eq!(snapshot.volumes[0].total_bytes, Some(10_000));
         assert_eq!(snapshot.volumes[0].available_bytes, Some(4_000));
+        assert_eq!(snapshot.volumes[0].read_bytes_per_second, Some(512.0));
+        assert_eq!(snapshot.volumes[0].write_bytes_per_second, None);
         assert_eq!(snapshot.network_interfaces.len(), 1);
         assert_eq!(snapshot.network_interfaces[0].name, "eth-test");
         assert_eq!(

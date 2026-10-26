@@ -21,6 +21,7 @@ pub struct SysinfoCollector {
     disks: Disks,
     networks: Networks,
     previous_network_counters: HashMap<String, NetworkCounters>,
+    previous_disk_sample_at: Option<Instant>,
     #[cfg(target_os = "linux")]
     previous_block_device_counters:
         HashMap<String, (native_monitor_collectors_linux::DiskCounters, Instant)>,
@@ -34,6 +35,7 @@ impl SysinfoCollector {
             disks: Disks::new(),
             networks: Networks::new(),
             previous_network_counters: HashMap::new(),
+            previous_disk_sample_at: None,
             #[cfg(target_os = "linux")]
             previous_block_device_counters: HashMap::new(),
             cpu_has_baseline: false,
@@ -52,8 +54,11 @@ impl SystemCollector for SysinfoCollector {
         self.system.refresh_cpu_usage();
         self.system.refresh_memory();
         self.system.refresh_processes(ProcessesToUpdate::All, true);
-        self.disks
-            .refresh_specifics(true, DiskRefreshKind::nothing().with_storage());
+        let disk_sampled_at = Instant::now();
+        self.disks.refresh_specifics(
+            true,
+            DiskRefreshKind::nothing().with_storage().with_io_usage(),
+        );
         self.networks.refresh(true);
 
         let cpu_status = if self.cpu_has_baseline {
@@ -95,17 +100,26 @@ impl SystemCollector for SysinfoCollector {
                 memory_bytes: process.memory(),
             })
             .collect::<Vec<_>>();
+        let disk_elapsed = self
+            .previous_disk_sample_at
+            .map(|previous| disk_sampled_at.duration_since(previous));
         let volumes = self
             .disks
             .list()
             .iter()
-            .map(|disk| VolumeMetrics {
-                mount_point: disk.mount_point().to_string_lossy().into_owned(),
-                file_system: disk.file_system().to_string_lossy().into_owned(),
-                total_bytes: (disk.total_space() > 0).then_some(disk.total_space()),
-                available_bytes: (disk.total_space() > 0).then_some(disk.available_space()),
+            .map(|disk| {
+                let usage = disk.usage();
+                VolumeMetrics {
+                    mount_point: disk.mount_point().to_string_lossy().into_owned(),
+                    file_system: disk.file_system().to_string_lossy().into_owned(),
+                    total_bytes: (disk.total_space() > 0).then_some(disk.total_space()),
+                    available_bytes: (disk.total_space() > 0).then_some(disk.available_space()),
+                    read_bytes_per_second: interval_rate(usage.read_bytes, disk_elapsed),
+                    write_bytes_per_second: interval_rate(usage.written_bytes, disk_elapsed),
+                }
             })
             .collect();
+        self.previous_disk_sample_at = Some(disk_sampled_at);
         let sampled_at = Instant::now();
         let mut current_network_counters = HashMap::new();
         let network_interfaces = self
@@ -200,6 +214,11 @@ impl SystemCollector for SysinfoCollector {
             },
             Capability {
                 name: "mounted_volumes",
+                status: "supported",
+                source: "sysinfo",
+            },
+            Capability {
+                name: "mounted_volume_io",
                 status: "supported",
                 source: "sysinfo",
             },
@@ -315,6 +334,15 @@ fn counter_rate(current: u64, previous: u64, elapsed: Duration) -> Option<f64> {
     Some(current.checked_sub(previous)? as f64 / elapsed_seconds)
 }
 
+fn interval_rate(bytes: u64, elapsed: Option<Duration>) -> Option<f64> {
+    let elapsed_seconds = elapsed?.as_secs_f64();
+    if elapsed_seconds <= 0.0 {
+        return None;
+    }
+
+    Some(bytes as f64 / elapsed_seconds)
+}
+
 #[cfg(target_os = "linux")]
 fn counter_rate_scaled(current: u64, previous: u64, elapsed: Duration, scale: f64) -> Option<f64> {
     let elapsed_seconds = elapsed.as_secs_f64();
@@ -336,9 +364,9 @@ fn compare_cpu_usage(left: Option<f32>, right: Option<f32>) -> std::cmp::Orderin
 
 #[cfg(test)]
 mod tests {
-    use super::counter_rate;
     #[cfg(target_os = "linux")]
     use super::counter_rate_scaled;
+    use super::{counter_rate, interval_rate};
     use std::time::Duration;
 
     #[test]
@@ -349,6 +377,16 @@ mod tests {
         );
         assert_eq!(counter_rate(10, 20, Duration::from_secs(1)), None);
         assert_eq!(counter_rate(10, 0, Duration::ZERO), None);
+    }
+
+    #[test]
+    fn volume_io_rate_preserves_missing_baselines_and_invalid_intervals() {
+        assert_eq!(interval_rate(1_000, None), None);
+        assert_eq!(interval_rate(1_000, Some(Duration::ZERO)), None);
+        assert_eq!(
+            interval_rate(1_000, Some(Duration::from_secs(2))),
+            Some(500.0)
+        );
     }
 
     #[cfg(target_os = "linux")]

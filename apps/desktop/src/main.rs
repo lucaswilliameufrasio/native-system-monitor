@@ -18,6 +18,7 @@ const MAX_PROCESS_FILTER_CHARS: usize = 256;
 const MAX_CHART_POINTS: usize = 72;
 const PROCESS_QUERY_PROTOCOL_MINOR: u32 = 2;
 const VOLUME_QUERY_PROTOCOL_MINOR: u32 = 3;
+const VOLUME_IO_QUERY_PROTOCOL_MINOR: u32 = 5;
 const NETWORK_QUERY_PROTOCOL_MINOR: u32 = 3;
 const BLOCK_DEVICE_IO_PROTOCOL_MINOR: u32 = 4;
 const ONE_MINUTE_MS: u64 = 60_000;
@@ -359,11 +360,20 @@ fn main() -> Result<()> {
                                     available: SharedString::from(format_bytes(
                                         volume.available_bytes,
                                     )),
+                                    read_rate: SharedString::from(format_bytes_per_second(
+                                        volume.read_bytes_per_second,
+                                    )),
+                                    write_rate: SharedString::from(format_bytes_per_second(
+                                        volume.write_bytes_per_second,
+                                    )),
                                 })
                                 .collect::<Vec<_>>();
                             let volume_status =
                                 if response.protocol_minor < VOLUME_QUERY_PROTOCOL_MINOR {
                                     "Agente sem suporte a volumes montados nesta versão".to_owned()
+                                } else if response.protocol_minor < VOLUME_IO_QUERY_PROTOCOL_MINOR {
+                                    "Taxas de I/O por volume não disponíveis nesta versão do agente"
+                                        .to_owned()
                                 } else if volumes.is_empty() {
                                     "Nenhum volume montado disponível.".to_owned()
                                 } else {

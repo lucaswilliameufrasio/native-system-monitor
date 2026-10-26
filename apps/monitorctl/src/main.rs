@@ -89,16 +89,18 @@ async fn run() -> Result<()> {
             match device_type.as_str() {
                 "disk" => {
                     println!(
-                        "{:<28} {:<16} {:>12} {:>12}",
-                        "mount point", "file system", "available", "total"
+                        "{:<28} {:<16} {:>12} {:>12} {:>12} {:>12}",
+                        "mount point", "file system", "available", "total", "read", "write"
                     );
                     for volume in snapshot.volumes {
                         println!(
-                            "{:<28} {:<16} {:>12} {:>12}",
+                            "{:<28} {:<16} {:>12} {:>12} {:>12} {:>12}",
                             volume.mount_point,
                             volume.file_system,
                             format_bytes(volume.available_bytes),
-                            format_bytes(volume.total_bytes)
+                            format_bytes(volume.total_bytes),
+                            format_bytes_per_second(volume.read_bytes_per_second),
+                            format_bytes_per_second(volume.write_bytes_per_second)
                         );
                     }
                 }

@@ -267,6 +267,8 @@ fn handle_request(
                             file_system: volume.file_system.clone(),
                             total_bytes: volume.total_bytes,
                             available_bytes: volume.available_bytes,
+                            read_bytes_per_second: volume.read_bytes_per_second,
+                            write_bytes_per_second: volume.write_bytes_per_second,
                         })
                         .collect(),
                     network_interfaces: snapshot

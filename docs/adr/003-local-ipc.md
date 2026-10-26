@@ -72,6 +72,10 @@ derivados por adaptadores de I/O. A primeira implementação é Linux-only; volu
 montados continuam em `volumes`, e clientes devem respeitar o status/ausência
 para plataformas sem suporte.
 
+No minor 1.5, cada volume pode acrescentar taxas de leitura/escrita fornecidas
+pelo adaptador de filesystem. Esses campos não convertem volume em dispositivo
+físico e são independentes dos counters físicos Linux.
+
 O benchmark sintético M1 mede filtragem/ordenação de 10.000 processos e
 serialização protobuf da resposta limitada. Essa medição não substitui a medição
 end-to-end da interação e renderização da GUI.

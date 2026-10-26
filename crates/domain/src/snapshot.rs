@@ -37,12 +37,14 @@ pub struct MemoryMetrics {
     pub status: MetricStatus,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VolumeMetrics {
     pub mount_point: String,
     pub file_system: String,
     pub total_bytes: Option<u64>,
     pub available_bytes: Option<u64>,
+    pub read_bytes_per_second: Option<f64>,
+    pub write_bytes_per_second: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
