@@ -540,6 +540,29 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 
 > **Regra de execução:** cada incremento deve deixar uma jornada funcionando de ponta a ponta (coletor → domínio → agente → IPC → UI → teste → documentação). Não terminar “todos os coletores” antes de construir a primeira interface usável.
 
+### Acompanhamento de implementação
+
+**Atualizado em 2026-10-26.** Estados abaixo refletem evidências presentes no
+repositório; CI verde não substitui ensaio visual, hardware real ou critérios de
+aceite que ainda não foram executados.
+
+| Incremento | Estado | Evidência / pendência principal |
+|---|---|---|
+| M0 — Fundamentos executáveis e validação Slint | Parcial | Workspace, GUI/agent/CLI, IPC, ADRs e CI Linux/macOS/Windows existem. Spikes de acessibilidade e renderer alternativo, screenshots por OS e validação nativa completa continuam pendentes. |
+| M1 — Processos, CPU e memória | Parcial | Coleta, IPC, busca/ordenação, gráficos, ciclo de vida por usuário, identidade PID + início e seleção de detalhes implementados; testes headless e CI multiplataforma passam. Falta fechar critérios E2E/visuais e budget de interação na UI nativa por OS. |
+| M2 — Desempenho, disco e rede | Não iniciado | Próximo incremento: contrato de volumes/discos e interfaces de rede, coleta, IPC e primeira apresentação/teste vertical. |
+| M3 — GPUs, VRAM e sensores | Não iniciado | Depende de adaptadores específicos e validação em hardware real por fabricante. |
+| M4 — Saúde do disco, energia e bateria | Não iniciado | Depende de contratos, permissões/helper e leituras sob demanda seguras. |
+| M5 — Prometheus, VictoriaMetrics e histórico avançado | Não iniciado | Exportação permanece desligada por padrão; fila, credenciais e laboratório ainda não implementados. |
+| M6 — Gestão avançada de processos | Não iniciado | Detalhes adicionais e ações privilegiadas ainda não implementados; qualquer ação destrutiva exigirá autorização e revisão próprias. |
+| M7 — Design, acessibilidade e estabilidade V1 | Não iniciado | Polimento, acessibilidade, i18n, soak e testes de ciclo de vida pendentes. |
+| M8 — Release público e manutenção | Não iniciado | Empacotamento, assinatura, SBOM, segurança, checksums e homologação de instalação pendentes. |
+
+**Sequência de execução:** fechar lacunas nativas de M0/M1 quando houver
+ambiente/plataforma disponível; em paralelo avançar M2 em fatias completas e
+testáveis, sem marcar como homologadas capacidades que dependem de hardware ou
+de uma sessão desktop ausente. Atualizar esta tabela a cada marco verificado.
+
 ### M0 — Fundamentos executáveis e validação Slint
 
 **Entregas:** Cargo workspace, `apps/desktop`, `apps/agent`, `monitorctl`, CI Windows/macOS/Linux, temas básicos Slint, IPC mínimo, logging estruturado, exemplo de fake collector, documentação ADR-001 (Slint), ADR-002 (separação de processos), definição de licenciamento e matriz de build.
