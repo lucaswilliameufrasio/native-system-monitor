@@ -2,7 +2,10 @@ use anyhow::{Context, Result, bail};
 use native_monitor_collector_api::SystemCollector;
 use native_monitor_collectors_common::SysinfoCollector;
 use native_monitor_domain::{MetricHistory, SystemSnapshot};
-use native_monitor_exporters::{bind_loopback, serve as serve_metrics};
+use native_monitor_exporters::{
+    bind_loopback, remote_write::RemoteWriteOptions, remote_write::run_remote_write,
+    serve as serve_metrics,
+};
 use native_monitor_ipc::server;
 use native_monitor_settings::AgentSettings;
 use std::env;
@@ -13,7 +16,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
-use tracing::{error, info};
+use tokio::time::timeout;
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -47,6 +51,30 @@ async fn main() -> Result<()> {
     let metrics_snapshot_receiver = snapshot_receiver.clone();
     let metrics_shutdown_receiver = shutdown_receiver.clone();
     let metrics_families = settings.export.prometheus.families.clone();
+    let remote_write_settings = settings.export.remote_write.clone();
+    let remote_write_snapshot_receiver = snapshot_receiver.clone();
+    let remote_write_shutdown_receiver = shutdown_receiver.clone();
+    let mut remote_write_worker = if remote_write_settings.enabled {
+        let endpoint = remote_write_settings
+            .url
+            .clone()
+            .expect("enabled remote write settings require a validated URL");
+        Some(tokio::spawn(run_remote_write(
+            remote_write_snapshot_receiver,
+            remote_write_shutdown_receiver,
+            RemoteWriteOptions {
+                endpoint,
+                interval: Duration::from_millis(remote_write_settings.interval_ms),
+                max_queue_bytes: usize::from(remote_write_settings.max_memory_queue_mib)
+                    * 1024
+                    * 1024,
+                enabled_families: remote_write_settings.families.clone(),
+            },
+        )))
+    } else {
+        None
+    };
+    let mut remote_write_worker_finished = false;
 
     let worker = thread::Builder::new()
         .name("native-monitor-collector".to_owned())
@@ -111,6 +139,19 @@ async fn main() -> Result<()> {
                 pending().await
             }
         } => result,
+        result = async {
+            if let Some(worker) = remote_write_worker.as_mut() {
+                match worker.await {
+                    Ok(result) => result.map_err(anyhow::Error::from),
+                    Err(error) => Err(anyhow::Error::from(error)),
+                }
+            } else {
+                pending().await
+            }
+        } => {
+            remote_write_worker_finished = true;
+            result
+        },
         // The IPC server owns a separate process lifetime; this signal only stops this agent.
         signal = tokio::signal::ctrl_c() => {
             signal.context("wait for shutdown signal")?;
@@ -120,6 +161,19 @@ async fn main() -> Result<()> {
     };
 
     let _previous_shutdown_state = shutdown_sender.send_replace(true);
+    if let Some(worker) = remote_write_worker.as_mut()
+        && !remote_write_worker_finished
+    {
+        match timeout(Duration::from_secs(6), &mut *worker).await {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(error))) => warn!(%error, "remote-write worker stopped with an error"),
+            Ok(Err(error)) => warn!(%error, "remote-write worker task failed"),
+            Err(_) => {
+                worker.abort();
+                warn!("remote-write worker exceeded its shutdown deadline and was aborted");
+            }
+        }
+    }
     stop_worker.store(true, Ordering::Release);
     worker.thread().unpark();
     worker

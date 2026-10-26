@@ -10,6 +10,9 @@ use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tracing::debug;
 
+pub mod remote_write;
+pub mod remote_write_client;
+
 const MAX_REQUEST_BYTES: usize = 4 * 1024;
 const MAX_ACTIVE_CLIENTS: usize = 4;
 const MAX_EXPORTED_DEVICE_SERIES: usize = 128;
@@ -185,7 +188,10 @@ fn render_prometheus_for_families(snapshot: &SystemSnapshot, enabled: &[String])
     let _ = writeln_metric(
         &mut output,
         "native_monitor_build_info",
-        &[("version", env!("CARGO_PKG_VERSION"))],
+        &[
+            ("os", std::env::consts::OS),
+            ("version", env!("CARGO_PKG_VERSION")),
+        ],
         Some(1.0),
     );
     let _ = writeln_metric(&mut output, "native_monitor_exporter_up", &[], Some(1.0));
@@ -823,7 +829,8 @@ mod tests {
         let output = render_prometheus(&snapshot);
 
         assert!(output.contains("native_monitor_cpu_utilization_ratio 0.25"));
-        assert!(output.contains("native_monitor_build_info{version=\"0.1.0\"} 1"));
+        assert!(output.contains("native_monitor_build_info{os=\""));
+        assert!(output.contains("version=\"0.1.0\"} 1"));
         assert!(output.contains("native_monitor_exporter_up 1"));
         assert!(
             output.contains("native_monitor_disk_read_bytes_per_second{device=\"block0\"} 1024")

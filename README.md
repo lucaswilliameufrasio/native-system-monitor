@@ -81,7 +81,15 @@ aceita um endereço loopback, por exemplo `127.0.0.1:9464`. Scrape local pode se
 verificado com `curl http://127.0.0.1:9464/metrics`. `families` aceita uma
 allowlist entre `cpu`, `memory`, `storage`, `network`, `gpu` e `battery`; a
 família `health` é sempre preservada e lista vazia significa todas. Remote Write
-ainda não está implementado.
+v1 também pode ser habilitado em `[export.remote_write]`; sua fila é apenas em
+memória, limitada a 16 MiB por padrão, e o envio não impede a coleta. O destino
+exige HTTPS, exceto HTTP em loopback para laboratórios locais. Nesta fatia, ainda
+não há integração com credential stores nem spool durável: use somente
+receptores que não exijam autenticação até essa integração ser concluída.
+O ensaio local reproduzível é `scripts/test-victoriametrics-remote-write.sh`;
+ele compila o agente, inicia um VictoriaMetrics descartável em loopback, verifica
+a série CPU e remove somente os recursos criados pelo ensaio. Requer Docker
+Compose e `curl`.
 
 ## Estrutura inicial
 

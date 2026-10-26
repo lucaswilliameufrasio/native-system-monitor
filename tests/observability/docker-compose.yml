@@ -1,0 +1,9 @@
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.154.0
+    command:
+      - -httpListenAddr=:8428
+      - -retentionPeriod=1d
+      - -search.latencyOffset=0s
+    ports:
+      - "127.0.0.1:${VM_PORT:-18428}:8428"

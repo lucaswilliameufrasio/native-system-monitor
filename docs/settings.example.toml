@@ -8,3 +8,13 @@ listen = "127.0.0.1:9464"
 # Empty exports every supported family; otherwise select from cpu, memory,
 # storage, network, gpu, battery, and health.
 families = []
+
+[export.remote_write]
+enabled = false
+# When enabled, use HTTPS. HTTP is accepted only for loopback receiver labs.
+# URL userinfo, query strings, and fragments are rejected to protect secrets.
+# Replace the reserved example host before enabling this exporter.
+url = "https://metrics.example.invalid/api/v1/write"
+interval_ms = 10000
+families = []
+max_memory_queue_mib = 16

@@ -1,6 +1,6 @@
 # ADR-010: exporter Prometheus pull local e opt-in
 
-- **Status:** Aceito para a primeira fatia de M5; Remote Write e laboratório pendentes
+- **Status:** Aceito para a superfície pull; Remote Write tem decisão própria em ADR-011
 - **Data:** 2026-10-26
 - **Referência:** plano mestre, seções 9.1–9.3 e incremento M5.
 
@@ -45,8 +45,8 @@ exportação.
 
 ## Consequências e revisão
 
-Essa fatia demonstra configuração, renderização e scrape loopback; não
-implementa ainda Remote Write, fila/backoff, credential stores, testes de receptor VictoriaMetrics/Prometheus
-nem laboratórios Docker. Revisitar os limites concorrentes após benchmark de
-scrape representativo; nunca ampliar bind além de loopback sem decisão e revisão
-de segurança próprias.
+Essa decisão cobre somente pull e renderização. Remote Write v1, fila e backoff
+estão registrados separadamente em ADR-011; credenciais, spool persistente e
+receptor Prometheus seguem pendentes. Revisitar os limites concorrentes após
+benchmark de scrape representativo; nunca ampliar bind além de loopback sem
+decisão e revisão de segurança próprias.

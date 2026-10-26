@@ -15,6 +15,17 @@ pub struct AgentSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct ExportSettings {
     pub prometheus: PrometheusSettings,
+    pub remote_write: RemoteWriteSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RemoteWriteSettings {
+    pub enabled: bool,
+    pub url: Option<String>,
+    pub interval_ms: u64,
+    pub families: Vec<String>,
+    pub max_memory_queue_mib: u8,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -46,6 +57,18 @@ impl Default for PrometheusSettings {
     }
 }
 
+impl Default for RemoteWriteSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: None,
+            interval_ms: 10_000,
+            families: Vec::new(),
+            max_memory_queue_mib: 16,
+        }
+    }
+}
+
 impl AgentSettings {
     pub fn parse_toml(input: &str) -> Result<Self, SettingsError> {
         let settings: Self = toml::from_str(input)?;
@@ -73,15 +96,62 @@ impl AgentSettings {
         }
 
         for family in &self.export.prometheus.families {
-            if !matches!(
-                family.as_str(),
-                "cpu" | "memory" | "storage" | "network" | "gpu" | "battery" | "health"
-            ) {
-                return Err(SettingsError::InvalidPrometheusFamily(family.clone()));
+            validate_metric_family(family)?;
+        }
+
+        let remote_write = &self.export.remote_write;
+        if !(1_000..=300_000).contains(&remote_write.interval_ms) {
+            return Err(SettingsError::InvalidRemoteWriteInterval);
+        }
+        if !(1..=16).contains(&remote_write.max_memory_queue_mib) {
+            return Err(SettingsError::InvalidRemoteWriteQueueCapacity);
+        }
+        for family in &remote_write.families {
+            validate_metric_family(family)?;
+        }
+        if remote_write.enabled {
+            let endpoint = remote_write
+                .url
+                .as_deref()
+                .ok_or(SettingsError::MissingRemoteWriteUrl)?;
+            let endpoint =
+                url::Url::parse(endpoint).map_err(|_| SettingsError::InvalidRemoteWriteUrl)?;
+            if endpoint.username() != ""
+                || endpoint.password().is_some()
+                || endpoint.query().is_some()
+                || endpoint.fragment().is_some()
+                || endpoint.port() == Some(0)
+                || !matches!(endpoint.scheme(), "https" | "http")
+            {
+                return Err(SettingsError::InvalidRemoteWriteUrl);
+            }
+            if endpoint.scheme() == "http"
+                && !endpoint.host_str().is_some_and(|host| {
+                    host == "localhost"
+                        || host
+                            .parse::<IpAddr>()
+                            .is_ok_and(|address| address.is_loopback())
+                })
+            {
+                return Err(SettingsError::InsecureRemoteWriteUrl);
+            }
+            if endpoint.host().is_none() {
+                return Err(SettingsError::InvalidRemoteWriteUrl);
             }
         }
 
         Ok(())
+    }
+}
+
+fn validate_metric_family(family: &str) -> Result<(), SettingsError> {
+    if matches!(
+        family,
+        "cpu" | "memory" | "storage" | "network" | "gpu" | "battery" | "health"
+    ) {
+        Ok(())
+    } else {
+        Err(SettingsError::InvalidPrometheusFamily(family.to_owned()))
     }
 }
 
@@ -99,6 +169,16 @@ pub enum SettingsError {
     InvalidPrometheusListener,
     #[error("unsupported Prometheus metric family: {0}")]
     InvalidPrometheusFamily(String),
+    #[error("remote_write.interval_ms must be between 1000 and 300000")]
+    InvalidRemoteWriteInterval,
+    #[error("remote_write.max_memory_queue_mib must be between 1 and 16")]
+    InvalidRemoteWriteQueueCapacity,
+    #[error("remote_write.url is required when remote_write.enabled is true")]
+    MissingRemoteWriteUrl,
+    #[error("remote_write.url must be a valid HTTPS URL without credentials, query, or fragment")]
+    InvalidRemoteWriteUrl,
+    #[error("remote_write.url may use HTTP only for loopback receivers")]
+    InsecureRemoteWriteUrl,
 }
 
 #[cfg(test)]
@@ -187,5 +267,47 @@ mod tests {
         let error = AgentSettings::parse_toml("[export.prometheus]\nfamilies = ['processes']\n")
             .expect_err("unknown metric family is rejected");
         assert!(matches!(error, SettingsError::InvalidPrometheusFamily(_)));
+    }
+
+    #[test]
+    fn remote_write_is_disabled_by_default_and_requires_a_safe_url_when_enabled() {
+        let defaults = AgentSettings::parse_toml("").expect("default settings are valid");
+        assert!(!defaults.export.remote_write.enabled);
+        assert_eq!(defaults.export.remote_write.max_memory_queue_mib, 16);
+
+        let error = AgentSettings::parse_toml("[export.remote_write]\nenabled = true\n")
+            .expect_err("enabled remote write needs an endpoint");
+        assert!(matches!(error, SettingsError::MissingRemoteWriteUrl));
+
+        let settings = AgentSettings::parse_toml(
+            "[export.remote_write]\nenabled = true\nurl = 'https://metrics.example.test/api/v1/write'\n",
+        )
+        .expect("HTTPS endpoint is allowed");
+        assert!(settings.export.remote_write.enabled);
+    }
+
+    #[test]
+    fn rejects_plaintext_remote_write_and_secret_bearing_urls() {
+        for url in [
+            "http://metrics.example.test/api/v1/write",
+            "https://user:secret@metrics.example.test/api/v1/write",
+            "https://metrics.example.test/api/v1/write?token=secret",
+            "https://metrics.example.test:0/api/v1/write",
+        ] {
+            let config = format!("[export.remote_write]\nenabled = true\nurl = '{url}'\n");
+            assert!(
+                AgentSettings::parse_toml(&config).is_err(),
+                "unsafe URL must be rejected"
+            );
+        }
+
+        let local = AgentSettings::parse_toml(
+            "[export.remote_write]\nenabled = true\nurl = 'http://127.0.0.1:8428/api/v1/write'\n",
+        )
+        .expect("loopback HTTP is allowed for local receiver labs");
+        assert_eq!(
+            local.export.remote_write.url.as_deref(),
+            Some("http://127.0.0.1:8428/api/v1/write")
+        );
     }
 }
