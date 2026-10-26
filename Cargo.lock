@@ -3074,6 +3074,7 @@ dependencies = [
  "native-monitor-ipc",
  "slint",
  "slint-build",
+ "sys-locale",
  "tokio",
  "tracing",
  "tracing-subscriber",

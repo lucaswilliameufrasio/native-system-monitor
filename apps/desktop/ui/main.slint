@@ -54,6 +54,7 @@ export struct GpuRow {
 
 enum MainPage { overview, processes, performance, storage, network }
 enum HistoryRange { one-minute, five-minutes }
+export enum UiLanguage { pt_br, en_us }
 
 component MetricPanel inherits Rectangle {
     min-width: 0px;
@@ -156,6 +157,7 @@ component SortHeader inherits Rectangle {
 }
 
 component ChartPanel inherits Rectangle {
+    in property <UiLanguage> language: UiLanguage.pt_br;
     min-width: 0px;
     in property <string> title;
     in property <[float]> points;
@@ -199,7 +201,7 @@ component ChartPanel inherits Rectangle {
                 if points.length == 0: Text {
                     width: parent.width;
                     height: parent.height;
-                    text: "Aguardando amostras";
+                    text: language == UiLanguage.en_us ? "Waiting for samples" : "Aguardando amostras";
                     color: #8493a5;
                     font-size: 12px;
                     horizontal-alignment: center;
@@ -233,13 +235,14 @@ component ChartPanel inherits Rectangle {
             height: 18px;
             Text { text: range-start; color: #8190a2; font-size: 10px; }
             Rectangle { horizontal-stretch: 1; background: transparent; }
-            Text { text: "agora"; color: #8190a2; font-size: 10px; }
+            Text { text: language == UiLanguage.en_us ? "now" : "agora"; color: #8190a2; font-size: 10px; }
         }
     }
 }
 
 export component MainWindow inherits Window {
-    title: "Monitor do Sistema";
+    in-out property <UiLanguage> language: UiLanguage.pt_br;
+    title: language == UiLanguage.en_us ? "System Monitor" : "Monitor do Sistema";
     width: 1120px;
     height: 760px;
     background: #11161d;
@@ -289,6 +292,7 @@ export component MainWindow inherits Window {
     callback process-selected(string);
     callback history-range-selected(string);
     callback retry-agent();
+    callback language-selected(string);
 
     VerticalBox {
         padding: 18px;
@@ -299,16 +303,16 @@ export component MainWindow inherits Window {
             spacing: 14px;
 
             VerticalBox {
-                width: 220px;
+                width: 205px;
                 spacing: 2px;
-                Text { text: "Monitor do Sistema"; color: #edf2f7; font-size: 23px; }
-                Text { text: "Visibilidade clara do seu computador"; color: #8493a5; font-size: 11px; }
+                Text { text: root.language == UiLanguage.en_us ? "System Monitor" : "Monitor do Sistema"; color: #edf2f7; font-size: 23px; }
+                Text { text: root.language == UiLanguage.en_us ? "A clear view of your computer" : "Visibilidade clara do seu computador"; color: #8493a5; font-size: 11px; }
             }
 
             Rectangle { horizontal-stretch: 1; background: transparent; }
 
             VerticalBox {
-                width: 280px;
+                width: 220px;
                 spacing: 2px;
                 Text {
                     text: agent-status;
@@ -327,10 +331,24 @@ export component MainWindow inherits Window {
             }
 
             if !agent-connected || !agent-startup-configured: RangeChoice {
-                width: 136px;
-                label: agent-connected ? "Configurar início" : "Tentar conexão";
+                width: 126px;
+                label: agent-connected ? (root.language == UiLanguage.en_us ? "Setup startup" : "Configurar início") : (root.language == UiLanguage.en_us ? "Retry connection" : "Tentar conexão");
                 active: false;
                 activated => { root.retry-agent(); }
+            }
+            language_pt_br := RangeChoice {
+                width: 52px;
+                label: "PT";
+                active: root.language == UiLanguage.pt_br;
+                accessible-label: "Português (Brasil)";
+                activated => { root.language-selected("pt-BR"); }
+            }
+            language_en_us := RangeChoice {
+                width: 52px;
+                label: "EN";
+                active: root.language == UiLanguage.en_us;
+                accessible-label: "English (United States)";
+                activated => { root.language-selected("en-US"); }
             }
         }
 
@@ -341,7 +359,7 @@ export component MainWindow inherits Window {
             Rectangle {
                 width: 164px;
                 accessible-role: tab-list;
-                accessible-label: "Navegação principal";
+                accessible-label: root.language == UiLanguage.en_us ? "Main navigation" : "Navegação principal";
                 accessible-orientation: vertical;
                 accessible-item-count: 5;
                 background: #171e27;
@@ -352,35 +370,35 @@ export component MainWindow inherits Window {
                 VerticalBox {
                     padding: 10px;
                     spacing: 6px;
-                    Text { text: "MONITORAMENTO"; color: #8292a5; font-size: 10px; }
+                    Text { text: root.language == UiLanguage.en_us ? "MONITORING" : "MONITORAMENTO"; color: #8292a5; font-size: 10px; }
                     NavigationItem {
-                        label: "Visão geral";
+                        label: root.language == UiLanguage.en_us ? "Overview" : "Visão geral";
                         active: root.active-page == MainPage.overview;
                         activated => { root.active-page = MainPage.overview; }
                     }
                     NavigationItem {
-                        label: "Processos";
+                        label: root.language == UiLanguage.en_us ? "Processes" : "Processos";
                         active: root.active-page == MainPage.processes;
                         activated => { root.active-page = MainPage.processes; }
                     }
                     NavigationItem {
-                        label: "Desempenho";
+                        label: root.language == UiLanguage.en_us ? "Performance" : "Desempenho";
                         active: root.active-page == MainPage.performance;
                         activated => { root.active-page = MainPage.performance; }
                     }
                     NavigationItem {
-                        label: "Armazenamento";
+                        label: root.language == UiLanguage.en_us ? "Storage" : "Armazenamento";
                         active: root.active-page == MainPage.storage;
                         activated => { root.active-page = MainPage.storage; }
                     }
                     NavigationItem {
-                        label: "Rede";
+                        label: root.language == UiLanguage.en_us ? "Network" : "Rede";
                         active: root.active-page == MainPage.network;
                         activated => { root.active-page = MainPage.network; }
                     }
                     Rectangle { vertical-stretch: 1; background: transparent; }
                     Text {
-                        text: "A coleta continua\ncom a janela fechada";
+                        text: root.language == UiLanguage.en_us ? "Collection continues\nwhen the window is closed" : "A coleta continua\ncom a janela fechada";
                         color: #8292a5;
                         font-size: 11px;
                         wrap: word-wrap;
@@ -398,9 +416,9 @@ export component MainWindow inherits Window {
 
                     HorizontalLayout {
                         height: 30px;
-                        Text { text: "Visão geral"; color: #edf2f7; font-size: 19px; }
+                        Text { text: root.language == UiLanguage.en_us ? "Overview" : "Visão geral"; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: "Atualização contínua"; color: #8493a5; font-size: 11px; vertical-alignment: center; }
+                        Text { text: root.language == UiLanguage.en_us ? "Live updates" : "Atualização contínua"; color: #8493a5; font-size: 11px; vertical-alignment: center; }
                     }
 
                     HorizontalLayout {
@@ -408,14 +426,14 @@ export component MainWindow inherits Window {
                         spacing: 10px;
                         MetricPanel {
                             horizontal-stretch: 1;
-                            title: "CPU total";
+                            title: root.language == UiLanguage.en_us ? "Total CPU" : "CPU total";
                             value: root.cpu-value;
                             detail: root.cpu-status;
                             accent: #7db6ff;
                         }
                         MetricPanel {
                             horizontal-stretch: 1;
-                            title: "Memória";
+                            title: root.language == UiLanguage.en_us ? "Memory" : "Memória";
                             value: root.memory-value;
                             detail: root.memory-status;
                             accent: #4fc59a;
@@ -429,14 +447,14 @@ export component MainWindow inherits Window {
                         }
                         MetricPanel {
                             horizontal-stretch: 1;
-                            title: "Processos";
+                            title: root.language == UiLanguage.en_us ? "Processes" : "Processos";
                             value: root.process-count;
-                            detail: "visíveis nesta amostra";
+                            detail: root.language == UiLanguage.en_us ? "visible in this sample" : "visíveis nesta amostra";
                             accent: #e8b75b;
                         }
                         MetricPanel {
                             horizontal-stretch: 1;
-                            title: "Bateria";
+                            title: root.language == UiLanguage.en_us ? "Battery" : "Bateria";
                             value: root.battery-value;
                             detail: root.battery-status;
                             accent: #e8b75b;
@@ -447,15 +465,17 @@ export component MainWindow inherits Window {
                         vertical-stretch: 1;
                         spacing: 12px;
                         ChartPanel {
+                            language: root.language;
                             horizontal-stretch: 1;
-                            title: "Uso de CPU";
+                            title: root.language == UiLanguage.en_us ? "CPU usage" : "Uso de CPU";
                             points: root.cpu-history;
                             accent: #70b5ff;
                             range-start: root.cpu-history-start-label;
                         }
                         ChartPanel {
+                            language: root.language;
                             horizontal-stretch: 1;
-                            title: "Uso de memória";
+                            title: root.language == UiLanguage.en_us ? "Memory usage" : "Uso de memória";
                             points: root.memory-history;
                             accent: #50c99a;
                             range-start: root.memory-history-start-label;
@@ -468,9 +488,9 @@ export component MainWindow inherits Window {
 
                     HorizontalLayout {
                         height: 32px;
-                        Text { text: "Processos"; color: #edf2f7; font-size: 19px; }
+                        Text { text: root.language == UiLanguage.en_us ? "Processes" : "Processos"; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: root.process-count + " visíveis"; color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                        Text { text: root.process-count + (root.language == UiLanguage.en_us ? " visible" : " visíveis"); color: #8493a5; font-size: 12px; vertical-alignment: center; }
                     }
 
                     Rectangle {
@@ -486,12 +506,12 @@ export component MainWindow inherits Window {
 
                             HorizontalLayout {
                                 height: 38px;
-                                Text { text: "Lista de processos"; color: #e4ebf3; font-size: 14px; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Process list" : "Lista de processos"; color: #e4ebf3; font-size: 14px; vertical-alignment: center; }
                                 Rectangle { horizontal-stretch: 1; background: transparent; }
                                 LineEdit {
                                     width: 238px;
-                                    placeholder-text: "Filtrar por nome ou PID";
-                                    accessible-label: "Filtrar processos por nome ou PID";
+                                    placeholder-text: root.language == UiLanguage.en_us ? "Filter by name or PID" : "Filtrar por nome ou PID";
+                                    accessible-label: root.language == UiLanguage.en_us ? "Filter processes by name or PID" : "Filtrar processos por nome ou PID";
                                     input-type: search;
                                     edited(text) => { root.filter-edited(text); }
                                 }
@@ -502,7 +522,7 @@ export component MainWindow inherits Window {
                                 spacing: 8px;
                                 SortHeader {
                                     horizontal-stretch: 1;
-                                    label: "Processo";
+                                    label: root.language == UiLanguage.en_us ? "Process" : "Processo";
                                     key: "name";
                                     active-key: root.sort-key;
                                     descending: root.sort-descending;
@@ -534,7 +554,7 @@ export component MainWindow inherits Window {
                                 }
                                 SortHeader {
                                     width: 136px;
-                                    label: "RAM MiB / %";
+                                    label: root.language == UiLanguage.en_us ? "Memory MiB / %" : "RAM MiB / %";
                                     key: "memory";
                                     active-key: root.sort-key;
                                     descending: root.sort-descending;
@@ -559,7 +579,7 @@ export component MainWindow inherits Window {
                                         overflow: elide;
                                     }
                                     Text {
-                                        text: "Início: " + root.selected-process-started + " · CPU " + root.selected-process-cpu + " · RAM " + root.selected-process-memory + " MiB (" + root.selected-process-memory-percent + ")";
+                                        text: (root.language == UiLanguage.en_us ? "Started: " : "Início: ") + root.selected-process-started + " · CPU " + root.selected-process-cpu + " · " + (root.language == UiLanguage.en_us ? "Memory " : "RAM ") + root.selected-process-memory + " MiB (" + root.selected-process-memory-percent + ")";
                                         color: #9eacbd;
                                         font-size: 11px;
                                         overflow: elide;
@@ -569,7 +589,7 @@ export component MainWindow inherits Window {
                                     x: 10px;
                                     width: parent.width - 20px;
                                     height: parent.height;
-                                    text: "Selecione um processo para ver PID, início e consumo.";
+                                    text: root.language == UiLanguage.en_us ? "Select a process to view its PID, start time, and usage." : "Selecione um processo para ver PID, início e consumo.";
                                     color: #8493a5;
                                     font-size: 11px;
                                     vertical-alignment: center;
@@ -646,10 +666,10 @@ export component MainWindow inherits Window {
 
                     HorizontalLayout {
                         height: 34px;
-                        Text { text: "Desempenho"; color: #edf2f7; font-size: 19px; }
+                        Text { text: root.language == UiLanguage.en_us ? "Performance" : "Desempenho"; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
                         RangeChoice {
-                            label: "1 minuto";
+                            label: root.language == UiLanguage.en_us ? "1 minute" : "1 minuto";
                             active: root.history-range == HistoryRange.one-minute;
                             activated => {
                                 root.history-range = HistoryRange.one-minute;
@@ -657,7 +677,7 @@ export component MainWindow inherits Window {
                             }
                         }
                         RangeChoice {
-                            label: "5 minutos";
+                            label: root.language == UiLanguage.en_us ? "5 minutes" : "5 minutos";
                             active: root.history-range == HistoryRange.five-minutes;
                             activated => {
                                 root.history-range = HistoryRange.five-minutes;
@@ -667,16 +687,18 @@ export component MainWindow inherits Window {
                     }
 
                     ChartPanel {
+                        language: root.language;
                         vertical-stretch: 1;
-                        title: "CPU total";
+                        title: root.language == UiLanguage.en_us ? "Total CPU" : "CPU total";
                         points: root.cpu-history;
                         accent: #70b5ff;
                         range-start: root.cpu-history-start-label;
                     }
 
                     ChartPanel {
+                        language: root.language;
                         vertical-stretch: 1;
-                        title: "Memória usada";
+                        title: root.language == UiLanguage.en_us ? "Memory used" : "Memória usada";
                         points: root.memory-history;
                         accent: #50c99a;
                         range-start: root.memory-history-start-label;
@@ -691,9 +713,9 @@ export component MainWindow inherits Window {
                         VerticalBox {
                             padding: 12px;
                             spacing: 6px;
-                            Text { text: "CPU por núcleo"; color: #e4ebf3; font-size: 13px; }
+                            Text { text: root.language == UiLanguage.en_us ? "CPU per core" : "CPU por núcleo"; color: #e4ebf3; font-size: 13px; }
                             if root.cpu-cores.length == 0: Text {
-                                text: "Dados por núcleo indisponíveis nesta amostra.";
+                                text: root.language == UiLanguage.en_us ? "Per-core data unavailable in this sample." : "Dados por núcleo indisponíveis nesta amostra.";
                                 color: #8493a5;
                                 font-size: 12px;
                             }
@@ -730,7 +752,7 @@ export component MainWindow inherits Window {
                         VerticalBox {
                             padding: 12px;
                             spacing: 6px;
-                            Text { text: "GPU e VRAM"; color: #e4ebf3; font-size: 13px; }
+                            Text { text: root.language == UiLanguage.en_us ? "GPU and VRAM" : "GPU e VRAM"; color: #e4ebf3; font-size: 13px; }
                             if root.gpus.length == 0: Text {
                                 text: root.gpu-status;
                                 color: #8493a5;
@@ -759,9 +781,9 @@ export component MainWindow inherits Window {
 
                     HorizontalLayout {
                         height: 32px;
-                        Text { text: "Armazenamento"; color: #edf2f7; font-size: 19px; }
+                        Text { text: root.language == UiLanguage.en_us ? "Storage" : "Armazenamento"; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: root.volumes.length + " volumes"; color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                        Text { text: root.volumes.length + (root.language == UiLanguage.en_us ? " volumes" : " volumes"); color: #8493a5; font-size: 12px; vertical-alignment: center; }
                     }
 
                     Rectangle {
@@ -778,12 +800,12 @@ export component MainWindow inherits Window {
                             HorizontalLayout {
                                 height: 28px;
                                 spacing: 8px;
-                                Text { text: "Ponto de montagem"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: "Leitura"; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Escrita"; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Sistema de arquivos"; color: #9eacbd; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Disponível"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Total"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Mount point" : "Ponto de montagem"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Read" : "Leitura"; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Write" : "Escrita"; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "File system" : "Sistema de arquivos"; color: #9eacbd; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Available" : "Disponível"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Total" : "Total"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
                             }
 
                             if root.volumes.length == 0: Text {
@@ -821,17 +843,17 @@ export component MainWindow inherits Window {
                         VerticalBox {
                             padding: 12px;
                             spacing: 8px;
-                            Text { text: "Atividade por dispositivo de bloco (Linux)"; color: #e4ebf3; font-size: 13px; }
+                            Text { text: root.language == UiLanguage.en_us ? "Block device activity (Linux)" : "Atividade por dispositivo de bloco (Linux)"; color: #e4ebf3; font-size: 13px; }
 
                             HorizontalLayout {
                                 height: 22px;
                                 spacing: 8px;
-                                Text { text: "Dispositivo"; color: #9eacbd; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: "Leitura"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Escrita"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Device" : "Dispositivo"; color: #9eacbd; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Read" : "Leitura"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Write" : "Escrita"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
                                 Text { text: "Read IOPS"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
                                 Text { text: "Write IOPS"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Busy"; color: #9eacbd; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Busy" : "Ocupação"; color: #9eacbd; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
                             }
 
                             if root.block-devices.length == 0: Text {
@@ -867,7 +889,7 @@ export component MainWindow inherits Window {
 
                     HorizontalLayout {
                         height: 32px;
-                        Text { text: "Rede"; color: #edf2f7; font-size: 19px; }
+                        Text { text: root.language == UiLanguage.en_us ? "Network" : "Rede"; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
                         Text { text: root.network-interfaces.length + " interfaces"; color: #8493a5; font-size: 12px; vertical-alignment: center; }
                     }
@@ -886,9 +908,9 @@ export component MainWindow inherits Window {
                             HorizontalLayout {
                                 height: 28px;
                                 spacing: 8px;
-                                Text { text: "Interface"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: "Recebimento"; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Envio"; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Interface" : "Interface"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Received" : "Recebimento"; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Sent" : "Envio"; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
                             }
 
                             if root.network-interfaces.length == 0: Text {

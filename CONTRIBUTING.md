@@ -53,3 +53,5 @@ para o usuário. Seus containers e redes próprios são removidos ao terminar.
   contrato de identidade, autorização, auditoria e recuperação em ADR e teste as
   fronteiras específicas de cada sistema operacional.
 - Não inclua tokens, chaves, configurações locais ou dados de máquina em commits.
+- O projeto adota a licença MIT; o aviso de copyright e o arquivo `LICENSE`
+  devem ser finalizados após confirmação do titular e do ano.
