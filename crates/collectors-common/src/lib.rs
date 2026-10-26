@@ -1,7 +1,9 @@
 use native_monitor_collector_api::{Capability, CollectorError, SystemCollector};
+#[cfg(target_os = "linux")]
+use native_monitor_domain::BlockDeviceMetrics;
 use native_monitor_domain::{
-    BlockDeviceMetrics, CpuMetrics, MemoryMetrics, MetricStatus, NetworkInterfaceMetrics,
-    ProcessIdentity, ProcessMetrics, SystemSnapshot, VolumeMetrics,
+    CpuMetrics, MemoryMetrics, MetricStatus, NetworkInterfaceMetrics, ProcessIdentity,
+    ProcessMetrics, SystemSnapshot, VolumeMetrics,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -305,7 +307,12 @@ impl SysinfoCollector {
 }
 
 fn counter_rate(current: u64, previous: u64, elapsed: Duration) -> Option<f64> {
-    counter_rate_scaled(current, previous, elapsed, 1.0)
+    let elapsed_seconds = elapsed.as_secs_f64();
+    if elapsed_seconds <= 0.0 {
+        return None;
+    }
+
+    Some(current.checked_sub(previous)? as f64 / elapsed_seconds)
 }
 
 #[cfg(target_os = "linux")]
