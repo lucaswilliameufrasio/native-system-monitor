@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -7,6 +8,20 @@ pub struct AgentSettings {
     pub collection_interval_ms: u64,
     pub history_capacity: usize,
     pub max_processes_per_response: usize,
+    pub export: ExportSettings,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ExportSettings {
+    pub prometheus: PrometheusSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PrometheusSettings {
+    pub enabled: bool,
+    pub listen: SocketAddr,
 }
 
 impl Default for AgentSettings {
@@ -15,6 +30,16 @@ impl Default for AgentSettings {
             collection_interval_ms: 1_000,
             history_capacity: 300,
             max_processes_per_response: 1_000,
+            export: ExportSettings::default(),
+        }
+    }
+}
+
+impl Default for PrometheusSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9_464),
         }
     }
 }
@@ -39,6 +64,12 @@ impl AgentSettings {
             return Err(SettingsError::InvalidProcessLimit);
         }
 
+        if !self.export.prometheus.listen.ip().is_loopback()
+            || (self.export.prometheus.enabled && self.export.prometheus.listen.port() == 0)
+        {
+            return Err(SettingsError::InvalidPrometheusListener);
+        }
+
         Ok(())
     }
 }
@@ -53,6 +84,8 @@ pub enum SettingsError {
     InvalidHistoryCapacity,
     #[error("max_processes_per_response must be between 1 and 1000")]
     InvalidProcessLimit,
+    #[error("prometheus.listen must use a loopback address and a non-zero port when enabled")]
+    InvalidPrometheusListener,
 }
 
 #[cfg(test)]
@@ -80,5 +113,50 @@ mod tests {
             .expect_err("sub-250 ms collection is not accepted");
 
         assert!(matches!(error, SettingsError::InvalidCollectionInterval));
+    }
+
+    #[test]
+    fn prometheus_export_is_disabled_by_default_and_uses_loopback() {
+        let parsed = AgentSettings::parse_toml("").expect("default settings parse");
+
+        assert!(!parsed.export.prometheus.enabled);
+        assert_eq!(
+            parsed.export.prometheus.listen.to_string(),
+            "127.0.0.1:9464"
+        );
+    }
+
+    #[test]
+    fn accepts_an_explicit_loopback_prometheus_listener() {
+        let settings = AgentSettings::parse_toml(
+            "[export.prometheus]\nenabled = true\nlisten = '127.0.0.1:19464'\n",
+        )
+        .expect("valid loopback exporter configuration");
+
+        assert!(settings.export.prometheus.enabled);
+        assert_eq!(
+            settings.export.prometheus.listen.to_string(),
+            "127.0.0.1:19464"
+        );
+    }
+
+    #[test]
+    fn rejects_non_loopback_prometheus_listeners() {
+        let error = AgentSettings::parse_toml(
+            "[export.prometheus]\nenabled = true\nlisten = '0.0.0.0:9464'\n",
+        )
+        .expect_err("exporter must not bind to a non-loopback address");
+
+        assert!(matches!(error, SettingsError::InvalidPrometheusListener));
+    }
+
+    #[test]
+    fn rejects_ephemeral_prometheus_port_when_enabled() {
+        let error = AgentSettings::parse_toml(
+            "[export.prometheus]\nenabled = true\nlisten = '127.0.0.1:0'\n",
+        )
+        .expect_err("enabled exporter needs a discoverable fixed port");
+
+        assert!(matches!(error, SettingsError::InvalidPrometheusListener));
     }
 }

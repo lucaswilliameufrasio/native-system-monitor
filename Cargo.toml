@@ -10,6 +10,7 @@ members = [
     "crates/collectors-linux",
     "crates/collectors-nvidia",
     "crates/domain",
+    "crates/exporters",
     "crates/ipc",
     "crates/settings",
 ]

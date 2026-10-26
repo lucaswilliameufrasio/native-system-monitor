@@ -2815,6 +2815,7 @@ dependencies = [
  "native-monitor-collector-api",
  "native-monitor-collectors-common",
  "native-monitor-domain",
+ "native-monitor-exporters",
  "native-monitor-ipc",
  "native-monitor-settings",
  "tokio",
@@ -2882,6 +2883,15 @@ dependencies = [
 [[package]]
 name = "native-monitor-domain"
 version = "0.1.0"
+
+[[package]]
+name = "native-monitor-exporters"
+version = "0.1.0"
+dependencies = [
+ "native-monitor-domain",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "native-monitor-ipc"

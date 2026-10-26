@@ -74,6 +74,12 @@ O caminho opcional de configuração é TOML:
 cargo run -p native-monitor-agent -- run docs/settings.example.toml
 ```
 
+O endpoint de scrape Prometheus é opcional e permanece desativado no exemplo.
+Para habilitá-lo, altere `[export.prometheus]` para `enabled = true`; ele só
+aceita um endereço loopback, por exemplo `127.0.0.1:9464`. Scrape local pode ser
+verificado com `curl http://127.0.0.1:9464/metrics`. Remote Write ainda não está
+implementado.
+
 ## Estrutura inicial
 
 - `apps/agent`: coleta em cadência única e serve snapshots locais.

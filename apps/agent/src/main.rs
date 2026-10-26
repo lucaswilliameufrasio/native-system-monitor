@@ -2,10 +2,12 @@ use anyhow::{Context, Result, bail};
 use native_monitor_collector_api::SystemCollector;
 use native_monitor_collectors_common::SysinfoCollector;
 use native_monitor_domain::{MetricHistory, SystemSnapshot};
+use native_monitor_exporters::{bind_loopback, serve as serve_metrics};
 use native_monitor_ipc::server;
 use native_monitor_settings::AgentSettings;
 use std::env;
 use std::fs;
+use std::future::pending;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -21,6 +23,20 @@ async fn main() -> Result<()> {
     let config_path = parse_command_line()?;
     let settings = read_settings(config_path.as_deref())?;
     let (snapshot_sender, snapshot_receiver) = watch::channel(Arc::new(SystemSnapshot::starting()));
+    let metrics_listener = if settings.export.prometheus.enabled {
+        Some(
+            bind_loopback(settings.export.prometheus.listen)
+                .await
+                .with_context(|| {
+                    format!(
+                        "bind Prometheus listener at {}",
+                        settings.export.prometheus.listen
+                    )
+                })?,
+        )
+    } else {
+        None
+    };
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
     let stop_worker = Arc::new(AtomicBool::new(false));
     let worker_stop = Arc::clone(&stop_worker);
@@ -28,6 +44,8 @@ async fn main() -> Result<()> {
     let history_capacity = settings.history_capacity;
     let mut collector = SysinfoCollector::new();
     let capabilities = Arc::new(collector.capabilities());
+    let metrics_snapshot_receiver = snapshot_receiver.clone();
+    let metrics_shutdown_receiver = shutdown_receiver.clone();
 
     let worker = thread::Builder::new()
         .name("native-monitor-collector".to_owned())
@@ -78,6 +96,15 @@ async fn main() -> Result<()> {
             settings.collection_interval_ms,
             capabilities,
         ) => result,
+        result = async {
+            if let Some(listener) = metrics_listener {
+                serve_metrics(listener, metrics_snapshot_receiver, metrics_shutdown_receiver)
+                    .await
+                    .map_err(anyhow::Error::from)
+            } else {
+                pending().await
+            }
+        } => result,
         // The IPC server owns a separate process lifetime; this signal only stops this agent.
         signal = tokio::signal::ctrl_c() => {
             signal.context("wait for shutdown signal")?;

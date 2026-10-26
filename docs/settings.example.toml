@@ -1,3 +1,7 @@
 collection_interval_ms = 1000
 history_capacity = 300
 max_processes_per_response = 1000
+
+[export.prometheus]
+enabled = false
+listen = "127.0.0.1:9464"
