@@ -12,6 +12,8 @@ use tracing::debug;
 
 const MAX_REQUEST_BYTES: usize = 4 * 1024;
 const MAX_ACTIVE_CLIENTS: usize = 4;
+const MAX_EXPORTED_DEVICE_SERIES: usize = 128;
+const MAX_EXPORTED_CPU_SERIES: usize = 512;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const METRICS_CONTENT_TYPE: &str = "application/openmetrics-text; version=1.0.0; charset=utf-8";
 
@@ -182,6 +184,21 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
             .total_usage_percent
             .map(|value| f64::from(value.clamp(0.0, 100.0)) / 100.0),
     );
+    for (index, usage) in snapshot
+        .cpu
+        .per_core_usage_percent
+        .iter()
+        .take(MAX_EXPORTED_CPU_SERIES)
+        .enumerate()
+    {
+        let alias = format!("cpu{index}");
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_cpu_core_utilization_ratio",
+            &[("cpu", alias.as_str())],
+            Some(f64::from(usage.clamp(0.0, 100.0)) / 100.0),
+        );
+    }
     let _ = writeln_metric(
         &mut output,
         "native_monitor_memory_total_bytes",
@@ -193,6 +210,18 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
         "native_monitor_memory_used_bytes",
         &[],
         snapshot.memory.used_bytes.map(|value| value as f64),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_memory_swap_total_bytes",
+        &[],
+        snapshot.memory.swap_total_bytes.map(|value| value as f64),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_memory_swap_used_bytes",
+        &[],
+        snapshot.memory.swap_used_bytes.map(|value| value as f64),
     );
 
     for (collector, status) in [
@@ -211,7 +240,12 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
         );
     }
 
-    for (index, device) in snapshot.block_devices.iter().enumerate() {
+    for (index, device) in snapshot
+        .block_devices
+        .iter()
+        .take(MAX_EXPORTED_DEVICE_SERIES)
+        .enumerate()
+    {
         let alias = format!("block{index}");
         let labels = [("device", alias.as_str())];
         let _ = writeln_metric(
@@ -246,9 +280,60 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
                 .busy_percent
                 .map(|value| value.clamp(0.0, 100.0) / 100.0),
         );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_disk_read_latency_seconds",
+            &labels,
+            device.read_latency_ms.map(|value| value / 1_000.0),
+        );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_disk_write_latency_seconds",
+            &labels,
+            device.write_latency_ms.map(|value| value / 1_000.0),
+        );
     }
 
-    for (index, interface) in snapshot.network_interfaces.iter().enumerate() {
+    for (index, volume) in snapshot
+        .volumes
+        .iter()
+        .take(MAX_EXPORTED_DEVICE_SERIES)
+        .enumerate()
+    {
+        let alias = format!("volume{index}");
+        let labels = [("volume", alias.as_str())];
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_volume_total_bytes",
+            &labels,
+            volume.total_bytes.map(|value| value as f64),
+        );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_volume_available_bytes",
+            &labels,
+            volume.available_bytes.map(|value| value as f64),
+        );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_volume_read_bytes_per_second",
+            &labels,
+            volume.read_bytes_per_second,
+        );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_volume_written_bytes_per_second",
+            &labels,
+            volume.write_bytes_per_second,
+        );
+    }
+
+    for (index, interface) in snapshot
+        .network_interfaces
+        .iter()
+        .take(MAX_EXPORTED_DEVICE_SERIES)
+        .enumerate()
+    {
         let alias = format!("interface{index}");
         let labels = [("interface", alias.as_str())];
         let _ = writeln_metric(
@@ -265,7 +350,12 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
         );
     }
 
-    for (index, gpu) in snapshot.gpus.iter().enumerate() {
+    for (index, gpu) in snapshot
+        .gpus
+        .iter()
+        .take(MAX_EXPORTED_DEVICE_SERIES)
+        .enumerate()
+    {
         let alias = format!("gpu{index}");
         let labels = [("gpu", alias.as_str())];
         let _ = writeln_metric(
@@ -281,9 +371,32 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
             &labels,
             gpu.memory_used_bytes.map(|value| value as f64),
         );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_gpu_memory_total_bytes",
+            &labels,
+            gpu.memory_total_bytes.map(|value| value as f64),
+        );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_gpu_temperature_celsius",
+            &labels,
+            gpu.temperature_celsius.map(f64::from),
+        );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_gpu_power_watts",
+            &labels,
+            gpu.power_watts,
+        );
     }
 
-    for (index, battery) in snapshot.batteries.iter().enumerate() {
+    for (index, battery) in snapshot
+        .batteries
+        .iter()
+        .take(MAX_EXPORTED_DEVICE_SERIES)
+        .enumerate()
+    {
         let alias = format!("battery{index}");
         let labels = [("battery", alias.as_str())];
         let _ = writeln_metric(
@@ -300,7 +413,67 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
             &labels,
             battery.temperature_celsius,
         );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_battery_energy_now_joules",
+            &labels,
+            battery.energy_now_wh.map(|value| value * 3_600.0),
+        );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_battery_energy_full_joules",
+            &labels,
+            battery.energy_full_wh.map(|value| value * 3_600.0),
+        );
+        let _ = writeln_metric(
+            &mut output,
+            "native_monitor_battery_cycle_count",
+            &labels,
+            battery.cycle_count.map(f64::from),
+        );
     }
+
+    let truncated_series = snapshot
+        .cpu
+        .per_core_usage_percent
+        .len()
+        .saturating_sub(MAX_EXPORTED_CPU_SERIES)
+        .saturating_add(
+            snapshot
+                .block_devices
+                .len()
+                .saturating_sub(MAX_EXPORTED_DEVICE_SERIES),
+        )
+        .saturating_add(
+            snapshot
+                .volumes
+                .len()
+                .saturating_sub(MAX_EXPORTED_DEVICE_SERIES),
+        )
+        .saturating_add(
+            snapshot
+                .network_interfaces
+                .len()
+                .saturating_sub(MAX_EXPORTED_DEVICE_SERIES),
+        )
+        .saturating_add(
+            snapshot
+                .gpus
+                .len()
+                .saturating_sub(MAX_EXPORTED_DEVICE_SERIES),
+        )
+        .saturating_add(
+            snapshot
+                .batteries
+                .len()
+                .saturating_sub(MAX_EXPORTED_DEVICE_SERIES),
+        );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_exporter_truncated_series",
+        &[],
+        (truncated_series > 0).then_some(truncated_series as f64),
+    );
 
     output.push_str("# EOF\n");
     output
@@ -308,7 +481,7 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
 
 use std::fmt::Write;
 
-const METRIC_FAMILIES: [(&str, Option<&str>, &str); 16] = [
+const METRIC_FAMILIES: [(&str, Option<&str>, &str); 32] = [
     (
         "native_monitor_snapshot_timestamp_seconds",
         Some("seconds"),
@@ -318,6 +491,11 @@ const METRIC_FAMILIES: [(&str, Option<&str>, &str); 16] = [
         "native_monitor_cpu_utilization_ratio",
         None,
         "Fraction of total CPU capacity currently in use.",
+    ),
+    (
+        "native_monitor_cpu_core_utilization_ratio",
+        None,
+        "Fraction of an individual logical CPU capacity in use.",
     ),
     (
         "native_monitor_memory_total_bytes",
@@ -330,9 +508,24 @@ const METRIC_FAMILIES: [(&str, Option<&str>, &str); 16] = [
         "Used physical memory in bytes.",
     ),
     (
+        "native_monitor_memory_swap_total_bytes",
+        Some("bytes"),
+        "Total configured swap space in bytes.",
+    ),
+    (
+        "native_monitor_memory_swap_used_bytes",
+        Some("bytes"),
+        "Used swap space in bytes.",
+    ),
+    (
         "native_monitor_collector_up",
         None,
         "Whether a collector reported a successful sample.",
+    ),
+    (
+        "native_monitor_exporter_truncated_series",
+        None,
+        "Number of metric series omitted to enforce exporter cardinality limits.",
     ),
     (
         "native_monitor_disk_read_bytes_per_second",
@@ -360,6 +553,36 @@ const METRIC_FAMILIES: [(&str, Option<&str>, &str); 16] = [
         "Fraction of the sample interval with block-device I/O in progress.",
     ),
     (
+        "native_monitor_disk_read_latency_seconds",
+        Some("seconds"),
+        "Mean time per completed physical block-device read operation.",
+    ),
+    (
+        "native_monitor_disk_write_latency_seconds",
+        Some("seconds"),
+        "Mean time per completed physical block-device write operation.",
+    ),
+    (
+        "native_monitor_volume_total_bytes",
+        Some("bytes"),
+        "Total capacity of a mounted volume in bytes.",
+    ),
+    (
+        "native_monitor_volume_available_bytes",
+        Some("bytes"),
+        "Available capacity of a mounted volume in bytes.",
+    ),
+    (
+        "native_monitor_volume_read_bytes_per_second",
+        Some("bytes"),
+        "Mounted-volume read throughput in bytes per second.",
+    ),
+    (
+        "native_monitor_volume_written_bytes_per_second",
+        Some("bytes"),
+        "Mounted-volume write throughput in bytes per second.",
+    ),
+    (
         "native_monitor_network_received_bytes_per_second",
         Some("bytes"),
         "Interface receive throughput in bytes per second.",
@@ -380,6 +603,21 @@ const METRIC_FAMILIES: [(&str, Option<&str>, &str); 16] = [
         "GPU memory reported as used in bytes.",
     ),
     (
+        "native_monitor_gpu_memory_total_bytes",
+        Some("bytes"),
+        "GPU memory reported as total in bytes.",
+    ),
+    (
+        "native_monitor_gpu_temperature_celsius",
+        Some("celsius"),
+        "GPU temperature reported by the driver.",
+    ),
+    (
+        "native_monitor_gpu_power_watts",
+        Some("watts"),
+        "GPU power reported by the driver.",
+    ),
+    (
         "native_monitor_battery_charge_ratio",
         None,
         "Battery charge level reported by the operating system.",
@@ -388,6 +626,21 @@ const METRIC_FAMILIES: [(&str, Option<&str>, &str); 16] = [
         "native_monitor_battery_temperature_celsius",
         Some("celsius"),
         "Battery temperature reported by the operating system.",
+    ),
+    (
+        "native_monitor_battery_energy_now_joules",
+        Some("joules"),
+        "Current battery energy, converted from reported watt-hours.",
+    ),
+    (
+        "native_monitor_battery_energy_full_joules",
+        Some("joules"),
+        "Full battery energy, converted from reported watt-hours.",
+    ),
+    (
+        "native_monitor_battery_cycle_count",
+        None,
+        "Battery cycle count reported by the operating system.",
     ),
 ];
 
@@ -507,6 +760,32 @@ mod tests {
         assert!(!output.contains("disk-with-serial-secret"));
         assert!(!output.contains("wlan0"));
         assert!(!output.contains("private-model-name"));
+    }
+
+    #[test]
+    fn caps_per_device_series_and_reports_the_omitted_count() {
+        let mut snapshot = SystemSnapshot::starting();
+        let device = BlockDeviceMetrics {
+            id: "8:0".to_owned(),
+            name: "device".to_owned(),
+            read_bytes_per_second: Some(1.0),
+            write_bytes_per_second: None,
+            read_operations_per_second: None,
+            write_operations_per_second: None,
+            read_latency_ms: None,
+            write_latency_ms: None,
+            busy_percent: None,
+        };
+        snapshot.block_devices = vec![device; 129];
+
+        let output = render_prometheus(&snapshot);
+        let exported_read_series = output
+            .lines()
+            .filter(|line| line.starts_with("native_monitor_disk_read_bytes_per_second{"))
+            .count();
+
+        assert_eq!(exported_read_series, 128);
+        assert!(output.contains("native_monitor_exporter_truncated_series 1"));
     }
 
     #[tokio::test]
