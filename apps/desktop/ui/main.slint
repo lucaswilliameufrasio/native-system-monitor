@@ -43,6 +43,15 @@ export struct BlockDeviceRow {
     busy: string,
 }
 
+export struct GpuRow {
+    name: string,
+    utilization: string,
+    memory: string,
+    temperature: string,
+    clocks: string,
+    power: string,
+}
+
 enum MainPage { overview, processes, performance, storage, network }
 enum HistoryRange { one-minute, five-minutes }
 
@@ -252,6 +261,8 @@ export component MainWindow inherits Window {
     in-out property <[NetworkInterfaceRow]> network-interfaces: [];
     in-out property <string> network-status: "Aguardando conexão com o agente…";
     in-out property <[BlockDeviceRow]> block-devices: [];
+    in-out property <[GpuRow]> gpus: [];
+    in-out property <string> gpu-status: "GPU indisponível";
     in-out property <string> block-device-io-status: "Aguardando conexão com o agente…";
     in-out property <[float]> cpu-history: [];
     in-out property <[float]> memory-history: [];
@@ -670,6 +681,38 @@ export component MainWindow inherits Window {
                                         }
                                     }
                                     Text { text: core.usage; color: #a6b3c2; width: 54px; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 104px;
+                        background: #19212b;
+                        border-color: #2c3744;
+                        border-width: 1px;
+                        border-radius: 8px;
+                        VerticalBox {
+                            padding: 12px;
+                            spacing: 6px;
+                            Text { text: "GPU e VRAM"; color: #e4ebf3; font-size: 13px; }
+                            if root.gpus.length == 0: Text {
+                                text: root.gpu-status;
+                                color: #8493a5;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                            if root.gpus.length > 0: ListView {
+                                vertical-stretch: 1;
+                                for gpu in root.gpus: HorizontalLayout {
+                                    height: 22px;
+                                    spacing: 8px;
+                                    Text { text: gpu.name; color: #e5ebf2; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                                    Text { text: gpu.utilization; color: #a6b3c2; font-size: 11px; width: 48px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: gpu.memory; color: #a6b3c2; font-size: 11px; width: 120px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: gpu.temperature; color: #a6b3c2; font-size: 11px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: gpu.clocks; color: #a6b3c2; font-size: 11px; width: 100px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: gpu.power; color: #a6b3c2; font-size: 11px; width: 52px; horizontal-alignment: right; vertical-alignment: center; }
                                 }
                             }
                         }

@@ -8,6 +8,7 @@ members = [
     "crates/collector-api",
     "crates/collectors-common",
     "crates/collectors-linux",
+    "crates/collectors-nvidia",
     "crates/domain",
     "crates/ipc",
     "crates/settings",
@@ -30,6 +31,7 @@ serde = { version = "1.0", features = ["derive"] }
 slint = "1.18.1"
 slint-build = "1.18.1"
 sysinfo = { version = "0.39.6", default-features = false, features = ["disk", "network", "system"] }
+nvml-wrapper = "0.13"
 thiserror = "2.0"
 tokio = { version = "1.48", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "0.9"

@@ -21,6 +21,7 @@ const VOLUME_QUERY_PROTOCOL_MINOR: u32 = 3;
 const VOLUME_IO_QUERY_PROTOCOL_MINOR: u32 = 5;
 const NETWORK_QUERY_PROTOCOL_MINOR: u32 = 3;
 const BLOCK_DEVICE_IO_PROTOCOL_MINOR: u32 = 4;
+const GPU_METRICS_PROTOCOL_MINOR: u32 = 7;
 const ONE_MINUTE_MS: u64 = 60_000;
 const FIVE_MINUTES_MS: u64 = 300_000;
 
@@ -350,6 +351,50 @@ fn main() -> Result<()> {
                                         .collect::<Vec<_>>()
                                 })
                                 .unwrap_or_default();
+                            let gpus = snapshot
+                                .gpus
+                                .iter()
+                                .map(|gpu| GpuRow {
+                                    name: SharedString::from(gpu.name.clone()),
+                                    utilization: SharedString::from(
+                                        gpu.utilization_percent
+                                            .map(|value| format!("{value:.0}%"))
+                                            .unwrap_or_else(|| "—".to_owned()),
+                                    ),
+                                    memory: SharedString::from(format!(
+                                        "{} / {}",
+                                        format_bytes(gpu.memory_used_bytes),
+                                        format_bytes(gpu.memory_total_bytes),
+                                    )),
+                                    temperature: SharedString::from(
+                                        gpu.temperature_celsius
+                                            .map(|value| format!("{value} °C"))
+                                            .unwrap_or_else(|| "—".to_owned()),
+                                    ),
+                                    clocks: SharedString::from(format!(
+                                        "{} / {} MHz",
+                                        gpu.graphics_clock_mhz
+                                            .map(|value| value.to_string())
+                                            .unwrap_or_else(|| "—".to_owned()),
+                                        gpu.memory_clock_mhz
+                                            .map(|value| value.to_string())
+                                            .unwrap_or_else(|| "—".to_owned()),
+                                    )),
+                                    power: SharedString::from(
+                                        gpu.power_watts
+                                            .map(|value| format!("{value:.1} W"))
+                                            .unwrap_or_else(|| "—".to_owned()),
+                                    ),
+                                })
+                                .collect::<Vec<_>>();
+                            let gpu_status = if response.protocol_minor < GPU_METRICS_PROTOCOL_MINOR
+                            {
+                                "Agente sem suporte a métricas de GPU nesta versão".to_owned()
+                            } else if gpus.is_empty() {
+                                metric_status_label(snapshot.gpu_status.as_str())
+                            } else {
+                                String::new()
+                            };
                             let volumes = snapshot
                                 .volumes
                                 .iter()
@@ -507,6 +552,8 @@ fn main() -> Result<()> {
                                     block_device_io_status,
                                 ));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(cpu_cores)));
+                                window.set_gpus(ModelRc::new(VecModel::from(gpus)));
+                                window.set_gpu_status(SharedString::from(gpu_status));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(cpu_history)));
                                 window.set_memory_history(ModelRc::new(VecModel::from(
                                     memory_history,
@@ -564,6 +611,8 @@ fn main() -> Result<()> {
                                     "Aguardando conexão com o agente…",
                                 ));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(Vec::new())));
+                                window.set_gpus(ModelRc::new(VecModel::from(Vec::new())));
+                                window.set_gpu_status(SharedString::from("GPU indisponível"));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_memory_history(ModelRc::new(VecModel::from(Vec::new())));
                             }

@@ -78,7 +78,11 @@ async fn run() -> Result<()> {
             let response = client::request(Operation::Snapshot, 1, "")
                 .await
                 .context("request device snapshot")?;
-            let required_minor = if device_type == "block" { 4 } else { 3 };
+            let required_minor = match device_type.as_str() {
+                "block" => 4,
+                "gpu" => 7,
+                _ => 3,
+            };
             if response.protocol_minor < required_minor {
                 bail!("agent does not support {device_type} device queries");
             }
@@ -147,7 +151,47 @@ async fn run() -> Result<()> {
                         );
                     }
                 }
-                _ => bail!("--type must be disk, network, or block"),
+                "gpu" => {
+                    println!(
+                        "{:<28} {:>8} {:>18} {:>8} {:>12} {:>9}",
+                        "GPU", "usage", "VRAM used/total", "temp", "clocks MHz", "power"
+                    );
+                    for gpu in &snapshot.gpus {
+                        let memory = format!(
+                            "{} / {}",
+                            format_bytes(gpu.memory_used_bytes),
+                            format_bytes(gpu.memory_total_bytes)
+                        );
+                        let clocks = format!(
+                            "{} / {}",
+                            gpu.graphics_clock_mhz
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "—".to_owned()),
+                            gpu.memory_clock_mhz
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "—".to_owned())
+                        );
+                        println!(
+                            "{:<28} {:>8} {:>18} {:>8} {:>12} {:>9}",
+                            gpu.name,
+                            gpu.utilization_percent
+                                .map(|value| format!("{value:.0}%"))
+                                .unwrap_or_else(|| "—".to_owned()),
+                            memory,
+                            gpu.temperature_celsius
+                                .map(|value| format!("{value}°C"))
+                                .unwrap_or_else(|| "—".to_owned()),
+                            clocks,
+                            gpu.power_watts
+                                .map(|value| format!("{value:.1} W"))
+                                .unwrap_or_else(|| "—".to_owned())
+                        );
+                    }
+                    if snapshot.gpus.is_empty() {
+                        println!("GPU status: {}", snapshot.gpu_status);
+                    }
+                }
+                _ => bail!("--type must be disk, network, block, or gpu"),
             }
         }
         "--help" | "-h" | "help" => print_help(),
@@ -169,16 +213,21 @@ fn parse_device_options(mut arguments: impl Iterator<Item = String>) -> Result<S
                 device_type = Some(
                     arguments
                         .next()
-                        .context("--type requires disk, network, or block")?,
+                        .context("--type requires disk, network, block, or gpu")?,
                 );
             }
             _ => bail!("unknown devices option {argument}"),
         }
     }
 
-    let device_type = device_type.context("devices requires --type disk, network, or block")?;
-    if device_type != "disk" && device_type != "network" && device_type != "block" {
-        bail!("--type must be disk, network, or block");
+    let device_type =
+        device_type.context("devices requires --type disk, network, block, or gpu")?;
+    if device_type != "disk"
+        && device_type != "network"
+        && device_type != "block"
+        && device_type != "gpu"
+    {
+        bail!("--type must be disk, network, block, or gpu");
     }
 
     Ok(device_type)
@@ -280,7 +329,7 @@ fn parse_process_options(mut arguments: impl Iterator<Item = String>) -> Result<
 
 fn print_help() {
     println!(
-        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl devices --type disk|network|block"
+        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl devices --type disk|network|block|gpu"
     );
 }
 
@@ -307,7 +356,11 @@ mod tests {
         );
         assert!(parse_device_options(std::iter::empty()).is_err());
         assert!(parse_device_options(["--type".to_owned()].into_iter()).is_err());
-        assert!(parse_device_options(["--type".to_owned(), "gpu".to_owned()].into_iter()).is_err());
+        assert_eq!(
+            parse_device_options(["--type".to_owned(), "gpu".to_owned()].into_iter())
+                .expect("parse GPU device option"),
+            "gpu"
+        );
         assert!(
             parse_device_options(
                 [

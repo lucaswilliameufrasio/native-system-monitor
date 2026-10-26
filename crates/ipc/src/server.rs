@@ -296,6 +296,22 @@ fn handle_request(
                         })
                         .collect(),
                     block_device_io_status: snapshot.block_device_io_status.as_str().to_owned(),
+                    gpus: snapshot
+                        .gpus
+                        .iter()
+                        .map(|gpu| crate::wire::GpuMetrics {
+                            id: gpu.id.clone(),
+                            name: gpu.name.clone(),
+                            utilization_percent: gpu.utilization_percent,
+                            memory_used_bytes: gpu.memory_used_bytes,
+                            memory_total_bytes: gpu.memory_total_bytes,
+                            temperature_celsius: gpu.temperature_celsius,
+                            graphics_clock_mhz: gpu.graphics_clock_mhz,
+                            memory_clock_mhz: gpu.memory_clock_mhz,
+                            power_watts: gpu.power_watts,
+                        })
+                        .collect(),
+                    gpu_status: snapshot.gpu_status.as_str().to_owned(),
                 }),
                 ..Response::default()
             }

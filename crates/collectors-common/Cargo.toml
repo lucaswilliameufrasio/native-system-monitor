@@ -12,6 +12,7 @@ sysinfo.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 native-monitor-collectors-linux = { path = "../collectors-linux" }
+native-monitor-collectors-nvidia = { path = "../collectors-nvidia" }
 
 [lints]
 workspace = true

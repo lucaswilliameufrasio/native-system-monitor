@@ -25,6 +25,8 @@ pub struct SysinfoCollector {
     #[cfg(target_os = "linux")]
     previous_block_device_counters:
         HashMap<String, (native_monitor_collectors_linux::DiskCounters, Instant)>,
+    #[cfg(target_os = "linux")]
+    nvidia: native_monitor_collectors_nvidia::NvidiaCollector,
     cpu_has_baseline: bool,
 }
 
@@ -38,6 +40,8 @@ impl SysinfoCollector {
             previous_disk_sample_at: None,
             #[cfg(target_os = "linux")]
             previous_block_device_counters: HashMap::new(),
+            #[cfg(target_os = "linux")]
+            nvidia: native_monitor_collectors_nvidia::NvidiaCollector::new(),
             cpu_has_baseline: false,
         }
     }
@@ -155,6 +159,10 @@ impl SystemCollector for SysinfoCollector {
         let (block_devices, block_device_io_status) = self.collect_block_devices(sampled_at);
         #[cfg(not(target_os = "linux"))]
         let (block_devices, block_device_io_status) = (Vec::new(), MetricStatus::Unsupported);
+        #[cfg(target_os = "linux")]
+        let (gpus, gpu_status) = self.nvidia.collect();
+        #[cfg(not(target_os = "linux"))]
+        let (gpus, gpu_status) = (Vec::new(), MetricStatus::Unsupported);
         processes.sort_by(|left, right| {
             compare_cpu_usage(left.cpu_usage_percent, right.cpu_usage_percent)
                 .then_with(|| left.identity.pid.cmp(&right.identity.pid))
@@ -188,6 +196,8 @@ impl SystemCollector for SysinfoCollector {
             network_interfaces,
             block_devices,
             block_device_io_status,
+            gpus,
+            gpu_status,
             processes,
             cpu_history_percent: Vec::new(),
             memory_history_percent: Vec::new(),
@@ -235,6 +245,21 @@ impl SystemCollector for SysinfoCollector {
                 status: "unsupported",
                 #[cfg(target_os = "linux")]
                 source: "/proc/diskstats",
+                #[cfg(not(target_os = "linux"))]
+                source: "no native adapter",
+            },
+            Capability {
+                name: "gpu_nvidia",
+                #[cfg(target_os = "linux")]
+                status: if self.nvidia.is_available() {
+                    "supported"
+                } else {
+                    "unsupported"
+                },
+                #[cfg(not(target_os = "linux"))]
+                status: "unsupported",
+                #[cfg(target_os = "linux")]
+                source: "NVML (optional runtime driver)",
                 #[cfg(not(target_os = "linux"))]
                 source: "no native adapter",
             },

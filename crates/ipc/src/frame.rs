@@ -79,7 +79,7 @@ mod tests {
             sort_descending: Some(true),
             process_sort_key: "name".to_owned(),
         };
-        let (mut sender, mut receiver) = tokio::io::duplex(128);
+        let (mut sender, mut receiver) = tokio::io::duplex(512);
 
         write_message(&mut sender, &request)
             .await
@@ -121,11 +121,23 @@ mod tests {
                     write_latency_ms: None,
                 }],
                 block_device_io_status: "ok".to_owned(),
+                gpus: vec![crate::wire::GpuMetrics {
+                    id: "GPU-test".to_owned(),
+                    name: "GPU fixture".to_owned(),
+                    utilization_percent: Some(42.0),
+                    memory_used_bytes: Some(1_024),
+                    memory_total_bytes: Some(4_096),
+                    temperature_celsius: None,
+                    graphics_clock_mhz: Some(900),
+                    memory_clock_mhz: None,
+                    power_watts: Some(12.5),
+                }],
+                gpu_status: "ok".to_owned(),
                 ..Snapshot::default()
             }),
             ..Response::default()
         };
-        let (mut sender, mut receiver) = tokio::io::duplex(128);
+        let (mut sender, mut receiver) = tokio::io::duplex(512);
 
         write_message(&mut sender, &response)
             .await
@@ -163,6 +175,11 @@ mod tests {
         assert_eq!(snapshot.block_devices[0].busy_percent, Some(12.5));
         assert_eq!(snapshot.block_devices[0].read_latency_ms, Some(2.5));
         assert_eq!(snapshot.block_devices[0].write_latency_ms, None);
+        assert_eq!(snapshot.gpus.len(), 1);
+        assert_eq!(snapshot.gpus[0].id, "GPU-test");
+        assert_eq!(snapshot.gpus[0].utilization_percent, Some(42.0));
+        assert_eq!(snapshot.gpus[0].temperature_celsius, None);
+        assert_eq!(snapshot.gpus[0].power_watts, Some(12.5));
         assert_eq!(snapshot.block_device_io_status, "ok");
     }
 

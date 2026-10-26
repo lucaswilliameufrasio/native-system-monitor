@@ -50,6 +50,8 @@ message Snapshot {
   repeated NetworkInterfaceMetrics network_interfaces = 10;
   repeated BlockDeviceMetrics block_devices = 11;
   string block_device_io_status = 12;
+  repeated GpuMetrics gpus = 13;
+  string gpu_status = 14;
 }
 
 message CpuMetrics {
@@ -91,6 +93,18 @@ message BlockDeviceMetrics {
   optional double busy_percent = 7;
   optional double read_latency_ms = 8;
   optional double write_latency_ms = 9;
+}
+
+message GpuMetrics {
+  string id = 1;
+  string name = 2;
+  optional float utilization_percent = 3;
+  optional uint64 memory_used_bytes = 4;
+  optional uint64 memory_total_bytes = 5;
+  optional uint32 temperature_celsius = 6;
+  optional uint32 graphics_clock_mhz = 7;
+  optional uint32 memory_clock_mhz = 8;
+  optional double power_watts = 9;
 }
 
 message ProcessMetrics {

@@ -68,6 +68,19 @@ pub struct BlockDeviceMetrics {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct GpuMetrics {
+    pub id: String,
+    pub name: String,
+    pub utilization_percent: Option<f32>,
+    pub memory_used_bytes: Option<u64>,
+    pub memory_total_bytes: Option<u64>,
+    pub temperature_celsius: Option<u32>,
+    pub graphics_clock_mhz: Option<u32>,
+    pub memory_clock_mhz: Option<u32>,
+    pub power_watts: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct SystemSnapshot {
     pub captured_at_unix_ms: u64,
     pub cpu: CpuMetrics,
@@ -76,6 +89,8 @@ pub struct SystemSnapshot {
     pub network_interfaces: Vec<NetworkInterfaceMetrics>,
     pub block_devices: Vec<BlockDeviceMetrics>,
     pub block_device_io_status: MetricStatus,
+    pub gpus: Vec<GpuMetrics>,
+    pub gpu_status: MetricStatus,
     pub processes: Vec<ProcessMetrics>,
     pub cpu_history_percent: Vec<f32>,
     pub memory_history_percent: Vec<f32>,
@@ -102,6 +117,8 @@ impl SystemSnapshot {
             network_interfaces: Vec::new(),
             block_devices: Vec::new(),
             block_device_io_status: MetricStatus::WarmingUp,
+            gpus: Vec::new(),
+            gpu_status: MetricStatus::WarmingUp,
             processes: Vec::new(),
             cpu_history_percent: Vec::new(),
             memory_history_percent: Vec::new(),
