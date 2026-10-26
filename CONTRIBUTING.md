@@ -41,6 +41,18 @@ Eles requerem Docker com Compose e `curl`, não devem apontar para destinos
 compartilhados ou de produção e recusam execução se já houver um agente ativo
 para o usuário. Seus containers e redes próprios são removidos ao terminar.
 
+Em Linux, `scripts/validate-linux-network.py` compara o tráfego de loopback
+gerado localmente (limitado a 32 MiB) com os deltas de `/proc/net/dev` e as
+leituras de `monitorctl devices --type network`. Requer um agente já ativo e
+alcançável; não inicia, encerra nem reconfigura agente algum. Por exemplo:
+
+```sh
+python3 scripts/validate-linux-network.py --size-mib 8
+```
+
+O ensaio é uma checagem limitada de tendência/unidade, não um benchmark de
+capacidade, e não acessa a rede externa.
+
 ## Contratos e segurança
 
 - Preserve campos desconhecidos como ausentes; não invente valores para sensores
