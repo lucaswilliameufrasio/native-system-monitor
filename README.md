@@ -97,7 +97,9 @@ rejeições, descartes e último sucesso; são contadores/estado voláteis do pr
 O ensaio local reproduzível é `scripts/test-victoriametrics-remote-write.sh`;
 ele compila o agente, inicia um VictoriaMetrics descartável em loopback, verifica
 a série CPU e remove somente os recursos criados pelo ensaio. Requer Docker
-Compose e `curl`.
+Compose e `curl`. `scripts/test-prometheus-remote-write.sh` exercita também o
+receiver nativo do Prometheus (v3.15.1), confirma a série pela API de consulta e
+remove o container e a rede isolados ao terminar.
 
 ## Estrutura inicial
 

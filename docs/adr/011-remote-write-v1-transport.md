@@ -52,10 +52,13 @@ retries transitórios e credenciais guardadas fora do TOML.
 ## Consequências e revisão
 
 Encoding, headers, URL, fila e classificação têm testes locais com receptor
-HTTP falso. O laboratório `scripts/test-victoriametrics-remote-write.sh` também
-foi executado contra VictoriaMetrics v1.154.0 em container isolado: uma série CPU
-foi indexada e lida pela API de séries. Isso prova o caminho sem autenticação
-nesse receptor, não todos os destinos nem configurações TLS reais. Antes de
-considerar M5 concluído, adicionar credential stores por OS, status/contadores
-consultáveis, spool opcional e evidência de rotação/revogação. Destinos
-autenticados seguem indisponíveis até essa integração existir.
+HTTP falso. O laboratório `scripts/test-victoriametrics-remote-write.sh` foi
+executado contra VictoriaMetrics v1.154.0 em container isolado; uma série CPU foi
+indexada e lida pela API de séries. `scripts/test-prometheus-remote-write.sh`
+também foi executado contra Prometheus v3.15.1 com
+`--web.enable-remote-write-receiver`: a série CPU foi consultada pela API
+Prometheus após Remote Write v1, e o container/rede do ensaio foram removidos.
+Essas evidências validam receptores sem autenticação, não todos os destinos nem
+configurações TLS reais. Permanecem credential stores por OS, rotação/revogação,
+spool opcional e validação de destinos autenticados; estes continuam indisponíveis
+até a integração de credenciais existir.
