@@ -834,9 +834,10 @@ mod tests {
         let mut oversized_client = TcpStream::connect(address)
             .await
             .expect("connect oversized-header client");
-        let oversized_header = format!("GET /metrics HTTP/1.1\r\nX-Fill: {}", "a".repeat(5_000));
+        let mut oversized_header = b"GET /metrics HTTP/1.1\r\nX-Fill: ".to_vec();
+        oversized_header.resize(super::MAX_REQUEST_BYTES + 1, b'a');
         oversized_client
-            .write_all(oversized_header.as_bytes())
+            .write_all(&oversized_header)
             .await
             .expect("send oversized header");
         let mut oversized_response = Vec::new();
