@@ -126,6 +126,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn skips_partitions_and_stacked_devices_without_following_device_names() {
         let root = std::env::temp_dir().join(format!(
