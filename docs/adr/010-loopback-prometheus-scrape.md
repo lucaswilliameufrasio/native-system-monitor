@@ -45,7 +45,7 @@ exportação.
 ## Consequências e revisão
 
 Essa fatia demonstra configuração, renderização e scrape loopback; não
-implementa ainda Remote Write, fila/backoff, credential
-stores, testes de receptor VictoriaMetrics/Prometheus nem laboratórios Docker.
-Revisitar os limites concorrentes após benchmark de scrape representativo; nunca
-ampliar bind além de loopback sem decisão e revisão de segurança próprias.
+implementa ainda Remote Write, fila/backoff, credential stores, testes de receptor VictoriaMetrics/Prometheus
+nem laboratórios Docker. Revisitar os limites concorrentes após benchmark de
+scrape representativo; nunca ampliar bind além de loopback sem decisão e revisão
+de segurança próprias.
