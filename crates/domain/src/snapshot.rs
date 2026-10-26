@@ -53,12 +53,25 @@ pub struct NetworkInterfaceMetrics {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct BlockDeviceMetrics {
+    pub id: String,
+    pub name: String,
+    pub read_bytes_per_second: Option<f64>,
+    pub write_bytes_per_second: Option<f64>,
+    pub read_operations_per_second: Option<f64>,
+    pub write_operations_per_second: Option<f64>,
+    pub busy_percent: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct SystemSnapshot {
     pub captured_at_unix_ms: u64,
     pub cpu: CpuMetrics,
     pub memory: MemoryMetrics,
     pub volumes: Vec<VolumeMetrics>,
     pub network_interfaces: Vec<NetworkInterfaceMetrics>,
+    pub block_devices: Vec<BlockDeviceMetrics>,
+    pub block_device_io_status: MetricStatus,
     pub processes: Vec<ProcessMetrics>,
     pub cpu_history_percent: Vec<f32>,
     pub memory_history_percent: Vec<f32>,
@@ -83,6 +96,8 @@ impl SystemSnapshot {
             },
             volumes: Vec::new(),
             network_interfaces: Vec::new(),
+            block_devices: Vec::new(),
+            block_device_io_status: MetricStatus::WarmingUp,
             processes: Vec::new(),
             cpu_history_percent: Vec::new(),
             memory_history_percent: Vec::new(),

@@ -2801,9 +2801,14 @@ name = "native-monitor-collectors-common"
 version = "0.1.0"
 dependencies = [
  "native-monitor-collector-api",
+ "native-monitor-collectors-linux",
  "native-monitor-domain",
  "sysinfo",
 ]
+
+[[package]]
+name = "native-monitor-collectors-linux"
+version = "0.1.0"
 
 [[package]]
 name = "native-monitor-desktop"

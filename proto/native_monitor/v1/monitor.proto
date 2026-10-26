@@ -48,6 +48,8 @@ message Snapshot {
   uint64 history_interval_ms = 8;
   repeated VolumeMetrics volumes = 9;
   repeated NetworkInterfaceMetrics network_interfaces = 10;
+  repeated BlockDeviceMetrics block_devices = 11;
+  string block_device_io_status = 12;
 }
 
 message CpuMetrics {
@@ -75,6 +77,16 @@ message NetworkInterfaceMetrics {
   string name = 1;
   optional double received_bytes_per_second = 2;
   optional double transmitted_bytes_per_second = 3;
+}
+
+message BlockDeviceMetrics {
+  string id = 1;
+  string name = 2;
+  optional double read_bytes_per_second = 3;
+  optional double write_bytes_per_second = 4;
+  optional double read_operations_per_second = 5;
+  optional double write_operations_per_second = 6;
+  optional double busy_percent = 7;
 }
 
 message ProcessMetrics {

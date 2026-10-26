@@ -10,5 +10,8 @@ native-monitor-collector-api = { path = "../collector-api" }
 native-monitor-domain = { path = "../domain" }
 sysinfo.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+native-monitor-collectors-linux = { path = "../collectors-linux" }
+
 [lints]
 workspace = true

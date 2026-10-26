@@ -19,6 +19,7 @@ const MAX_CHART_POINTS: usize = 72;
 const PROCESS_QUERY_PROTOCOL_MINOR: u32 = 2;
 const VOLUME_QUERY_PROTOCOL_MINOR: u32 = 3;
 const NETWORK_QUERY_PROTOCOL_MINOR: u32 = 3;
+const BLOCK_DEVICE_IO_PROTOCOL_MINOR: u32 = 4;
 const ONE_MINUTE_MS: u64 = 60_000;
 const FIVE_MINUTES_MS: u64 = 300_000;
 
@@ -390,6 +391,40 @@ fn main() -> Result<()> {
                             } else {
                                 String::new()
                             };
+                            let block_devices = snapshot
+                                .block_devices
+                                .iter()
+                                .map(|device| BlockDeviceRow {
+                                    name: SharedString::from(device.name.clone()),
+                                    read_rate: SharedString::from(format_bytes_per_second(
+                                        device.read_bytes_per_second,
+                                    )),
+                                    write_rate: SharedString::from(format_bytes_per_second(
+                                        device.write_bytes_per_second,
+                                    )),
+                                    read_iops: SharedString::from(format_operations_per_second(
+                                        device.read_operations_per_second,
+                                    )),
+                                    write_iops: SharedString::from(format_operations_per_second(
+                                        device.write_operations_per_second,
+                                    )),
+                                    busy: SharedString::from(
+                                        device
+                                            .busy_percent
+                                            .map(|value| format!("{value:.1}%"))
+                                            .unwrap_or_else(|| "—".to_owned()),
+                                    ),
+                                })
+                                .collect::<Vec<_>>();
+                            let block_device_io_status = if response.protocol_minor
+                                < BLOCK_DEVICE_IO_PROTOCOL_MINOR
+                            {
+                                "Agente sem suporte a I/O de dispositivos nesta versão".to_owned()
+                            } else if block_devices.is_empty() {
+                                metric_status_label(snapshot.block_device_io_status.as_str())
+                            } else {
+                                String::new()
+                            };
                             let captured_at = snapshot.captured_at_unix_ms;
                             let selected_process_key = selected_process
                                 .as_ref()
@@ -450,6 +485,11 @@ fn main() -> Result<()> {
                                     network_interfaces,
                                 )));
                                 window.set_network_status(SharedString::from(network_status));
+                                window
+                                    .set_block_devices(ModelRc::new(VecModel::from(block_devices)));
+                                window.set_block_device_io_status(SharedString::from(
+                                    block_device_io_status,
+                                ));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(cpu_cores)));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(cpu_history)));
                                 window.set_memory_history(ModelRc::new(VecModel::from(
@@ -501,6 +541,10 @@ fn main() -> Result<()> {
                                     Vec::new(),
                                 )));
                                 window.set_network_status(SharedString::from(
+                                    "Aguardando conexão com o agente…",
+                                ));
+                                window.set_block_devices(ModelRc::new(VecModel::from(Vec::new())));
+                                window.set_block_device_io_status(SharedString::from(
                                     "Aguardando conexão com o agente…",
                                 ));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(Vec::new())));
@@ -647,6 +691,13 @@ fn format_bytes_per_second(bytes_per_second: Option<f64>) -> String {
     } else {
         format!("{bytes_per_second:.0} B/s")
     }
+}
+
+fn format_operations_per_second(operations_per_second: Option<f64>) -> String {
+    operations_per_second
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(|value| format!("{value:.1} op/s"))
+        .unwrap_or_else(|| "—".to_owned())
 }
 
 fn process_start_age_label(start_time_unix_seconds: u64, now_unix_seconds: u64) -> String {

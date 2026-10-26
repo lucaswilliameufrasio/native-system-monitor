@@ -1,7 +1,7 @@
 use native_monitor_collector_api::{Capability, CollectorError, SystemCollector};
 use native_monitor_domain::{
-    CpuMetrics, MemoryMetrics, MetricStatus, NetworkInterfaceMetrics, ProcessIdentity,
-    ProcessMetrics, SystemSnapshot, VolumeMetrics,
+    BlockDeviceMetrics, CpuMetrics, MemoryMetrics, MetricStatus, NetworkInterfaceMetrics,
+    ProcessIdentity, ProcessMetrics, SystemSnapshot, VolumeMetrics,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -19,6 +19,9 @@ pub struct SysinfoCollector {
     disks: Disks,
     networks: Networks,
     previous_network_counters: HashMap<String, NetworkCounters>,
+    #[cfg(target_os = "linux")]
+    previous_block_device_counters:
+        HashMap<String, (native_monitor_collectors_linux::DiskCounters, Instant)>,
     cpu_has_baseline: bool,
 }
 
@@ -29,6 +32,8 @@ impl SysinfoCollector {
             disks: Disks::new(),
             networks: Networks::new(),
             previous_network_counters: HashMap::new(),
+            #[cfg(target_os = "linux")]
+            previous_block_device_counters: HashMap::new(),
             cpu_has_baseline: false,
         }
     }
@@ -130,6 +135,10 @@ impl SystemCollector for SysinfoCollector {
             })
             .collect();
         self.previous_network_counters = current_network_counters;
+        #[cfg(target_os = "linux")]
+        let (block_devices, block_device_io_status) = self.collect_block_devices(sampled_at);
+        #[cfg(not(target_os = "linux"))]
+        let (block_devices, block_device_io_status) = (Vec::new(), MetricStatus::Unsupported);
         processes.sort_by(|left, right| {
             compare_cpu_usage(left.cpu_usage_percent, right.cpu_usage_percent)
                 .then_with(|| left.identity.pid.cmp(&right.identity.pid))
@@ -161,6 +170,8 @@ impl SystemCollector for SysinfoCollector {
             },
             volumes,
             network_interfaces,
+            block_devices,
+            block_device_io_status,
             processes,
             cpu_history_percent: Vec::new(),
             memory_history_percent: Vec::new(),
@@ -195,17 +206,116 @@ impl SystemCollector for SysinfoCollector {
                 status: "supported",
                 source: "sysinfo",
             },
+            Capability {
+                name: "block_device_io",
+                #[cfg(target_os = "linux")]
+                status: "supported",
+                #[cfg(not(target_os = "linux"))]
+                status: "unsupported",
+                #[cfg(target_os = "linux")]
+                source: "/proc/diskstats",
+                #[cfg(not(target_os = "linux"))]
+                source: "no native adapter",
+            },
         ]
     }
 }
 
+#[cfg(target_os = "linux")]
+impl SysinfoCollector {
+    fn collect_block_devices(
+        &mut self,
+        sampled_at: Instant,
+    ) -> (Vec<BlockDeviceMetrics>, MetricStatus) {
+        let counters = match native_monitor_collectors_linux::read_system_disk_counters() {
+            Ok(counters) => counters,
+            Err(_) => return (Vec::new(), MetricStatus::Error),
+        };
+        let mut current_counters = HashMap::new();
+        let mut devices = Vec::with_capacity(counters.len());
+
+        for counters in counters {
+            let id = counters.id();
+            let previous = self.previous_block_device_counters.get(&id);
+            let elapsed = previous.map(|(_, previous_at)| sampled_at.duration_since(*previous_at));
+            let metrics = BlockDeviceMetrics {
+                id: id.clone(),
+                name: counters.name.clone(),
+                read_bytes_per_second: previous.and_then(|(previous, _)| {
+                    counter_rate_scaled(
+                        counters.sectors_read,
+                        previous.sectors_read,
+                        elapsed?,
+                        512.0,
+                    )
+                }),
+                write_bytes_per_second: previous.and_then(|(previous, _)| {
+                    counter_rate_scaled(
+                        counters.sectors_written,
+                        previous.sectors_written,
+                        elapsed?,
+                        512.0,
+                    )
+                }),
+                read_operations_per_second: previous.and_then(|(previous, _)| {
+                    counter_rate_scaled(
+                        counters.reads_completed,
+                        previous.reads_completed,
+                        elapsed?,
+                        1.0,
+                    )
+                }),
+                write_operations_per_second: previous.and_then(|(previous, _)| {
+                    counter_rate_scaled(
+                        counters.writes_completed,
+                        previous.writes_completed,
+                        elapsed?,
+                        1.0,
+                    )
+                }),
+                busy_percent: previous.and_then(|(previous, _)| {
+                    let elapsed_millis = elapsed?.as_secs_f64() * 1_000.0;
+                    if elapsed_millis <= 0.0 {
+                        return None;
+                    }
+                    let busy_millis = counters.io_millis.checked_sub(previous.io_millis)? as f64;
+                    Some((busy_millis / elapsed_millis * 100.0).clamp(0.0, 100.0))
+                }),
+            };
+            current_counters.insert(id, (counters, sampled_at));
+            devices.push(metrics);
+        }
+
+        self.previous_block_device_counters = current_counters;
+        let status = if devices.is_empty() {
+            MetricStatus::TemporarilyUnavailable
+        } else if devices.iter().all(|device| {
+            device.read_bytes_per_second.is_none()
+                && device.write_bytes_per_second.is_none()
+                && device.read_operations_per_second.is_none()
+                && device.write_operations_per_second.is_none()
+                && device.busy_percent.is_none()
+        }) {
+            MetricStatus::WarmingUp
+        } else {
+            MetricStatus::Ok
+        };
+        (devices, status)
+    }
+}
+
 fn counter_rate(current: u64, previous: u64, elapsed: Duration) -> Option<f64> {
+    counter_rate_scaled(current, previous, elapsed, 1.0)
+}
+
+#[cfg(target_os = "linux")]
+fn counter_rate_scaled(current: u64, previous: u64, elapsed: Duration, scale: f64) -> Option<f64> {
     let elapsed_seconds = elapsed.as_secs_f64();
     if elapsed_seconds <= 0.0 {
         return None;
     }
 
-    Some(current.checked_sub(previous)? as f64 / elapsed_seconds)
+    Some(current.checked_sub(previous)? as f64 * scale / elapsed_seconds)
 }
 
 fn compare_cpu_usage(left: Option<f32>, right: Option<f32>) -> std::cmp::Ordering {
@@ -220,6 +330,8 @@ fn compare_cpu_usage(left: Option<f32>, right: Option<f32>) -> std::cmp::Orderin
 #[cfg(test)]
 mod tests {
     use super::counter_rate;
+    #[cfg(target_os = "linux")]
+    use super::counter_rate_scaled;
     use std::time::Duration;
 
     #[test]
@@ -230,5 +342,19 @@ mod tests {
         );
         assert_eq!(counter_rate(10, 20, Duration::from_secs(1)), None);
         assert_eq!(counter_rate(10, 0, Duration::ZERO), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn block_device_rate_uses_linux_sector_size_and_handles_counter_resets() {
+        assert_eq!(
+            counter_rate_scaled(12, 4, Duration::from_secs(2), 512.0),
+            Some(2_048.0)
+        );
+        assert_eq!(
+            counter_rate_scaled(4, 12, Duration::from_secs(2), 512.0),
+            None
+        );
+        assert_eq!(counter_rate_scaled(12, 4, Duration::ZERO, 512.0), None);
     }
 }

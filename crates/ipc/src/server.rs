@@ -2,10 +2,11 @@ use crate::{
     MAX_ACTIVE_CLIENTS, PROTOCOL_MAJOR, PROTOCOL_MINOR,
     frame::{read_message, write_message},
     wire::{
-        Capability as WireCapability, CpuMetrics as WireCpuMetrics,
-        MemoryMetrics as WireMemoryMetrics, NetworkInterfaceMetrics as WireNetworkInterfaceMetrics,
-        Operation, ProcessMetrics as WireProcessMetrics, Request, Response,
-        Snapshot as WireSnapshot, VolumeMetrics as WireVolumeMetrics,
+        BlockDeviceMetrics as WireBlockDeviceMetrics, Capability as WireCapability,
+        CpuMetrics as WireCpuMetrics, MemoryMetrics as WireMemoryMetrics,
+        NetworkInterfaceMetrics as WireNetworkInterfaceMetrics, Operation,
+        ProcessMetrics as WireProcessMetrics, Request, Response, Snapshot as WireSnapshot,
+        VolumeMetrics as WireVolumeMetrics,
     },
 };
 use anyhow::{Context, Result};
@@ -277,6 +278,20 @@ fn handle_request(
                             transmitted_bytes_per_second: interface.transmitted_bytes_per_second,
                         })
                         .collect(),
+                    block_devices: snapshot
+                        .block_devices
+                        .iter()
+                        .map(|device| WireBlockDeviceMetrics {
+                            id: device.id.clone(),
+                            name: device.name.clone(),
+                            read_bytes_per_second: device.read_bytes_per_second,
+                            write_bytes_per_second: device.write_bytes_per_second,
+                            read_operations_per_second: device.read_operations_per_second,
+                            write_operations_per_second: device.write_operations_per_second,
+                            busy_percent: device.busy_percent,
+                        })
+                        .collect(),
+                    block_device_io_status: snapshot.block_device_io_status.as_str().to_owned(),
                 }),
                 ..Response::default()
             }

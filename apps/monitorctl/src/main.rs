@@ -78,8 +78,9 @@ async fn run() -> Result<()> {
             let response = client::request(Operation::Snapshot, 1, "")
                 .await
                 .context("request device snapshot")?;
-            if response.protocol_minor < 3 {
-                bail!("agent does not support disk or network device queries");
+            let required_minor = if device_type == "block" { 4 } else { 3 };
+            if response.protocol_minor < required_minor {
+                bail!("agent does not support {device_type} device queries");
             }
             let snapshot = response
                 .snapshot
@@ -115,7 +116,27 @@ async fn run() -> Result<()> {
                         );
                     }
                 }
-                _ => bail!("--type must be disk or network"),
+                "block" => {
+                    println!(
+                        "{:<16} {:>12} {:>12} {:>10} {:>10} {:>8}",
+                        "device", "read", "write", "read IOPS", "write IOPS", "busy"
+                    );
+                    for device in snapshot.block_devices {
+                        println!(
+                            "{:<16} {:>12} {:>12} {:>10} {:>10} {:>8}",
+                            device.name,
+                            format_bytes_per_second(device.read_bytes_per_second),
+                            format_bytes_per_second(device.write_bytes_per_second),
+                            format_operations_per_second(device.read_operations_per_second),
+                            format_operations_per_second(device.write_operations_per_second),
+                            device
+                                .busy_percent
+                                .map(|value| format!("{value:.1}%"))
+                                .unwrap_or_else(|| "—".to_owned())
+                        );
+                    }
+                }
+                _ => bail!("--type must be disk, network, or block"),
             }
         }
         "--help" | "-h" | "help" => print_help(),
@@ -137,16 +158,16 @@ fn parse_device_options(mut arguments: impl Iterator<Item = String>) -> Result<S
                 device_type = Some(
                     arguments
                         .next()
-                        .context("--type requires disk or network")?,
+                        .context("--type requires disk, network, or block")?,
                 );
             }
             _ => bail!("unknown devices option {argument}"),
         }
     }
 
-    let device_type = device_type.context("devices requires --type disk or network")?;
-    if device_type != "disk" && device_type != "network" {
-        bail!("--type must be disk or network");
+    let device_type = device_type.context("devices requires --type disk, network, or block")?;
+    if device_type != "disk" && device_type != "network" && device_type != "block" {
+        bail!("--type must be disk, network, or block");
     }
 
     Ok(device_type)
@@ -194,6 +215,13 @@ fn format_bytes_per_second(bytes_per_second: Option<f64>) -> String {
     }
 }
 
+fn format_operations_per_second(operations_per_second: Option<f64>) -> String {
+    operations_per_second
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(|value| format!("{value:.1}"))
+        .unwrap_or_else(|| "—".to_owned())
+}
+
 fn ensure_no_more_arguments(mut arguments: impl Iterator<Item = String>) -> Result<()> {
     if let Some(unexpected) = arguments.next() {
         bail!("unexpected argument {unexpected}");
@@ -234,7 +262,7 @@ fn parse_process_options(mut arguments: impl Iterator<Item = String>) -> Result<
 
 fn print_help() {
     println!(
-        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl devices --type disk|network"
+        "Usage:\n  monitorctl status\n  monitorctl capabilities\n  monitorctl processes [--sort cpu|memory] [--limit N]\n  monitorctl devices --type disk|network|block"
     );
 }
 
@@ -253,6 +281,11 @@ mod tests {
             parse_device_options(["--type".to_owned(), "network".to_owned()].into_iter())
                 .expect("parse network device option"),
             "network"
+        );
+        assert_eq!(
+            parse_device_options(["--type".to_owned(), "block".to_owned()].into_iter())
+                .expect("parse block device option"),
+            "block"
         );
         assert!(parse_device_options(std::iter::empty()).is_err());
         assert!(parse_device_options(["--type".to_owned()].into_iter()).is_err());

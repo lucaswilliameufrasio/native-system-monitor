@@ -30,6 +30,15 @@ export struct NetworkInterfaceRow {
     transmitted: string,
 }
 
+export struct BlockDeviceRow {
+    name: string,
+    read-rate: string,
+    write-rate: string,
+    read-iops: string,
+    write-iops: string,
+    busy: string,
+}
+
 enum MainPage { overview, processes, performance, storage, network }
 enum HistoryRange { one-minute, five-minutes }
 
@@ -238,6 +247,8 @@ export component MainWindow inherits Window {
     in-out property <string> volume-status: "Aguardando conexão com o agente…";
     in-out property <[NetworkInterfaceRow]> network-interfaces: [];
     in-out property <string> network-status: "Aguardando conexão com o agente…";
+    in-out property <[BlockDeviceRow]> block-devices: [];
+    in-out property <string> block-device-io-status: "Aguardando conexão com o agente…";
     in-out property <[float]> cpu-history: [];
     in-out property <[float]> memory-history: [];
     in-out property <MainPage> active-page: MainPage.overview;
@@ -709,6 +720,54 @@ export component MainWindow inherits Window {
                                     Text { text: volume.file-system; color: #a6b3c2; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
                                     Text { text: volume.available; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
                                     Text { text: volume.total; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: #19212b;
+                        border-color: #2c3744;
+                        border-width: 1px;
+                        border-radius: 8px;
+
+                        VerticalBox {
+                            padding: 12px;
+                            spacing: 8px;
+                            Text { text: "Atividade por dispositivo de bloco (Linux)"; color: #e4ebf3; font-size: 13px; }
+
+                            HorizontalLayout {
+                                height: 22px;
+                                spacing: 8px;
+                                Text { text: "Dispositivo"; color: #9eacbd; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: "Leitura"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Escrita"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Read IOPS"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Write IOPS"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Busy"; color: #9eacbd; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                            }
+
+                            if root.block-devices.length == 0: Text {
+                                vertical-stretch: 1;
+                                text: root.block-device-io-status;
+                                color: #8493a5;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            if root.block-devices.length > 0: ListView {
+                                vertical-stretch: 1;
+                                for device in root.block-devices: HorizontalLayout {
+                                    height: 30px;
+                                    spacing: 8px;
+                                    Text { text: device.name; color: #e5ebf2; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; }
+                                    Text { text: device.read-rate; color: #a6b3c2; font-size: 11px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: device.write-rate; color: #a6b3c2; font-size: 11px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: device.read-iops; color: #a6b3c2; font-size: 11px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: device.write-iops; color: #a6b3c2; font-size: 11px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: device.busy; color: #a6b3c2; font-size: 11px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
                                 }
                             }
                         }

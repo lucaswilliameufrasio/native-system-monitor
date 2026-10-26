@@ -67,6 +67,11 @@ derivadas dos counters desde a amostra anterior; taxas ausentes continuam
 ausentes. Os nomes não classificam interface física/virtual e não devem ser
 somados como se fossem tráfego físico sem deduplicação.
 
+No minor 1.4, `block_devices` e `block_device_io_status` acrescentam counters
+derivados por adaptadores de I/O. A primeira implementação é Linux-only; volumes
+montados continuam em `volumes`, e clientes devem respeitar o status/ausência
+para plataformas sem suporte.
+
 O benchmark sintético M1 mede filtragem/ordenação de 10.000 processos e
 serialização protobuf da resposta limitada. Essa medição não substitui a medição
 end-to-end da interação e renderização da GUI.

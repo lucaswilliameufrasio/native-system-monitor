@@ -107,6 +107,16 @@ mod tests {
                     received_bytes_per_second: Some(1_024.0),
                     transmitted_bytes_per_second: None,
                 }],
+                block_devices: vec![crate::wire::BlockDeviceMetrics {
+                    id: "8:0".to_owned(),
+                    name: "sda".to_owned(),
+                    read_bytes_per_second: Some(4_096.0),
+                    write_bytes_per_second: None,
+                    read_operations_per_second: Some(2.0),
+                    write_operations_per_second: None,
+                    busy_percent: Some(12.5),
+                }],
+                block_device_io_status: "ok".to_owned(),
                 ..Snapshot::default()
             }),
             ..Response::default()
@@ -137,6 +147,15 @@ mod tests {
             snapshot.network_interfaces[0].transmitted_bytes_per_second,
             None
         );
+        assert_eq!(snapshot.block_devices.len(), 1);
+        assert_eq!(snapshot.block_devices[0].id, "8:0");
+        assert_eq!(
+            snapshot.block_devices[0].read_bytes_per_second,
+            Some(4_096.0)
+        );
+        assert_eq!(snapshot.block_devices[0].write_bytes_per_second, None);
+        assert_eq!(snapshot.block_devices[0].busy_percent, Some(12.5));
+        assert_eq!(snapshot.block_device_io_status, "ok");
     }
 
     #[tokio::test]
