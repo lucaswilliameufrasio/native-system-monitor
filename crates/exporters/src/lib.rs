@@ -1,3 +1,4 @@
+use crate::remote_write::RemoteWriteStats;
 use native_monitor_domain::SystemSnapshot;
 use std::io;
 use std::net::SocketAddr;
@@ -25,6 +26,7 @@ pub async fn serve(
     snapshots: watch::Receiver<Arc<SystemSnapshot>>,
     mut shutdown: watch::Receiver<bool>,
     enabled_families: Vec<String>,
+    remote_write_stats: Arc<RemoteWriteStats>,
 ) -> io::Result<()> {
     let mut clients = JoinSet::new();
     let enabled_families = Arc::new(enabled_families);
@@ -53,10 +55,11 @@ pub async fn serve(
                 }
                 let snapshots = snapshots.clone();
                 let enabled_families = Arc::clone(&enabled_families);
+                let remote_write_stats = Arc::clone(&remote_write_stats);
                 clients.spawn(async move {
                     match timeout(
                         REQUEST_TIMEOUT,
-                        handle_client(stream, snapshots, enabled_families),
+                        handle_client(stream, snapshots, enabled_families, remote_write_stats),
                     )
                     .await
                     {
@@ -77,6 +80,7 @@ async fn handle_client(
     mut stream: TcpStream,
     snapshots: watch::Receiver<Arc<SystemSnapshot>>,
     enabled_families: Arc<Vec<String>>,
+    remote_write_stats: Arc<RemoteWriteStats>,
 ) -> io::Result<()> {
     let mut request = Vec::with_capacity(512);
     let mut chunk = [0_u8; 512];
@@ -152,7 +156,7 @@ async fn handle_client(
     }
 
     let snapshot = snapshots.borrow().clone();
-    let body = render_prometheus_for_families(&snapshot, &enabled_families);
+    let body = render_prometheus_with_stats(&snapshot, &enabled_families, &remote_write_stats);
     write_response(stream, 200, "OK", METRICS_CONTENT_TYPE, &body).await
 }
 
@@ -177,10 +181,23 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
 }
 
 fn render_prometheus_for_families(snapshot: &SystemSnapshot, enabled: &[String]) -> String {
+    render_prometheus_with_stats(snapshot, enabled, &RemoteWriteStats::new(false))
+}
+
+fn render_prometheus_with_stats(
+    snapshot: &SystemSnapshot,
+    enabled: &[String],
+    remote_write_stats: &RemoteWriteStats,
+) -> String {
     let mut output = String::with_capacity(2_048);
     for (name, unit, help) in METRIC_FAMILIES {
         let _ = writeln!(output, "# HELP {name} {help}");
-        let _ = writeln!(output, "# TYPE {name} gauge");
+        let metric_type = if name.ends_with("_total") {
+            "counter"
+        } else {
+            "gauge"
+        };
+        let _ = writeln!(output, "# TYPE {name} {metric_type}");
         if let Some(unit) = unit {
             let _ = writeln!(output, "# UNIT {name} {unit}");
         }
@@ -195,6 +212,58 @@ fn render_prometheus_for_families(snapshot: &SystemSnapshot, enabled: &[String])
         Some(1.0),
     );
     let _ = writeln_metric(&mut output, "native_monitor_exporter_up", &[], Some(1.0));
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_remote_write_enabled",
+        &[],
+        Some(if remote_write_stats.enabled() {
+            1.0
+        } else {
+            0.0
+        }),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_remote_write_sent_batches_total",
+        &[],
+        Some(remote_write_stats.sent_batches_total() as f64),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_remote_write_retried_batches_total",
+        &[],
+        Some(remote_write_stats.retried_batches_total() as f64),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_remote_write_rejected_batches_total",
+        &[],
+        Some(remote_write_stats.rejected_batches_total() as f64),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_remote_write_dropped_batches_total",
+        &[],
+        Some(remote_write_stats.dropped_batches_total() as f64),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_remote_write_queue_batches",
+        &[],
+        Some(remote_write_stats.queue_batches() as f64),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_remote_write_queue_bytes",
+        &[],
+        Some(remote_write_stats.queue_bytes() as f64),
+    );
+    let _ = writeln_metric(
+        &mut output,
+        "native_monitor_remote_write_last_success_timestamp_seconds",
+        &[],
+        remote_write_stats.last_success_timestamp_seconds(),
+    );
     let _ = writeln_metric(
         &mut output,
         "native_monitor_snapshot_timestamp_seconds",
@@ -548,6 +617,7 @@ fn metric_family(name: &str) -> Option<&'static str> {
         || name == "native_monitor_exporter_up"
         || name == "native_monitor_collector_up"
         || name == "native_monitor_exporter_truncated_series"
+        || name.starts_with("native_monitor_remote_write_")
     {
         Some("health")
     } else {
@@ -557,7 +627,7 @@ fn metric_family(name: &str) -> Option<&'static str> {
 
 use std::fmt::Write;
 
-const METRIC_FAMILIES: [(&str, Option<&str>, &str); 34] = [
+const METRIC_FAMILIES: [(&str, Option<&str>, &str); 42] = [
     (
         "native_monitor_build_info",
         None,
@@ -567,6 +637,46 @@ const METRIC_FAMILIES: [(&str, Option<&str>, &str); 34] = [
         "native_monitor_exporter_up",
         None,
         "Whether the local exporter is serving this metrics snapshot.",
+    ),
+    (
+        "native_monitor_remote_write_enabled",
+        None,
+        "Whether Remote Write delivery is enabled.",
+    ),
+    (
+        "native_monitor_remote_write_sent_batches_total",
+        None,
+        "Remote Write batches accepted by the receiver.",
+    ),
+    (
+        "native_monitor_remote_write_retried_batches_total",
+        None,
+        "Remote Write retryable delivery attempts.",
+    ),
+    (
+        "native_monitor_remote_write_rejected_batches_total",
+        None,
+        "Remote Write batches discarded after permanent HTTP errors.",
+    ),
+    (
+        "native_monitor_remote_write_dropped_batches_total",
+        None,
+        "Newest Remote Write batches dropped because the volatile queue was full.",
+    ),
+    (
+        "native_monitor_remote_write_queue_batches",
+        None,
+        "Batches currently waiting in the volatile Remote Write queue.",
+    ),
+    (
+        "native_monitor_remote_write_queue_bytes",
+        Some("bytes"),
+        "Compressed bytes currently waiting in the volatile Remote Write queue.",
+    ),
+    (
+        "native_monitor_remote_write_last_success_timestamp_seconds",
+        Some("seconds"),
+        "Unix timestamp of the latest successful Remote Write response.",
     ),
     (
         "native_monitor_snapshot_timestamp_seconds",
@@ -779,6 +889,7 @@ pub async fn bind_loopback(address: SocketAddr) -> io::Result<TcpListener> {
 #[cfg(test)]
 mod tests {
     use super::{bind_loopback, render_prometheus, render_prometheus_for_families, serve};
+    use crate::remote_write::RemoteWriteStats;
     use native_monitor_domain::{
         BatteryMetrics, BlockDeviceMetrics, CpuMetrics, MetricStatus, NetworkInterfaceMetrics,
         SystemSnapshot,
@@ -832,6 +943,8 @@ mod tests {
         assert!(output.contains("native_monitor_build_info{os=\""));
         assert!(output.contains("version=\"0.1.0\"} 1"));
         assert!(output.contains("native_monitor_exporter_up 1"));
+        assert!(output.contains("# TYPE native_monitor_remote_write_sent_batches_total counter"));
+        assert!(output.contains("native_monitor_remote_write_enabled 0"));
         assert!(
             output.contains("native_monitor_disk_read_bytes_per_second{device=\"block0\"} 1024")
         );
@@ -907,6 +1020,7 @@ mod tests {
             snapshot_receiver,
             shutdown_receiver,
             Vec::new(),
+            Arc::new(RemoteWriteStats::new(false)),
         ));
 
         let mut client = TcpStream::connect(address)

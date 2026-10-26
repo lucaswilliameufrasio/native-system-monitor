@@ -3,7 +3,8 @@ use native_monitor_collector_api::SystemCollector;
 use native_monitor_collectors_common::SysinfoCollector;
 use native_monitor_domain::{MetricHistory, SystemSnapshot};
 use native_monitor_exporters::{
-    bind_loopback, remote_write::RemoteWriteOptions, remote_write::run_remote_write,
+    bind_loopback,
+    remote_write::{RemoteWriteOptions, RemoteWriteStats, run_remote_write},
     serve as serve_metrics,
 };
 use native_monitor_ipc::server;
@@ -52,6 +53,7 @@ async fn main() -> Result<()> {
     let metrics_shutdown_receiver = shutdown_receiver.clone();
     let metrics_families = settings.export.prometheus.families.clone();
     let remote_write_settings = settings.export.remote_write.clone();
+    let remote_write_stats = Arc::new(RemoteWriteStats::new(remote_write_settings.enabled));
     let remote_write_snapshot_receiver = snapshot_receiver.clone();
     let remote_write_shutdown_receiver = shutdown_receiver.clone();
     let mut remote_write_worker = if remote_write_settings.enabled {
@@ -69,6 +71,7 @@ async fn main() -> Result<()> {
                     * 1024
                     * 1024,
                 enabled_families: remote_write_settings.families.clone(),
+                stats: Arc::clone(&remote_write_stats),
             },
         )))
     } else {
@@ -132,6 +135,7 @@ async fn main() -> Result<()> {
                     metrics_snapshot_receiver,
                     metrics_shutdown_receiver,
                     metrics_families,
+                    Arc::clone(&remote_write_stats),
                 )
                 .await
                 .map_err(anyhow::Error::from)

@@ -5,6 +5,7 @@ use prost::Message;
 use snap::raw::Encoder;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::watch;
@@ -13,6 +14,69 @@ use tracing::{debug, warn};
 
 const MAX_QUEUED_BATCHES: usize = 1_024;
 const MAX_REMOTE_WRITE_QUEUE_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Debug, Default)]
+pub struct RemoteWriteStats {
+    enabled: bool,
+    sent_batches_total: AtomicU64,
+    retried_batches_total: AtomicU64,
+    rejected_batches_total: AtomicU64,
+    dropped_batches_total: AtomicU64,
+    queue_batches: AtomicU64,
+    queue_bytes: AtomicU64,
+    last_success_timestamp_seconds: AtomicU64,
+}
+
+impl RemoteWriteStats {
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            ..Self::default()
+        }
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn sent_batches_total(&self) -> u64 {
+        self.sent_batches_total.load(Ordering::Relaxed)
+    }
+
+    pub fn retried_batches_total(&self) -> u64 {
+        self.retried_batches_total.load(Ordering::Relaxed)
+    }
+
+    pub fn rejected_batches_total(&self) -> u64 {
+        self.rejected_batches_total.load(Ordering::Relaxed)
+    }
+
+    pub fn dropped_batches_total(&self) -> u64 {
+        self.dropped_batches_total.load(Ordering::Relaxed)
+    }
+
+    pub fn queue_batches(&self) -> u64 {
+        self.queue_batches.load(Ordering::Relaxed)
+    }
+
+    pub fn queue_bytes(&self) -> u64 {
+        self.queue_bytes.load(Ordering::Relaxed)
+    }
+
+    pub fn last_success_timestamp_seconds(&self) -> Option<f64> {
+        let timestamp = self.last_success_timestamp_seconds.load(Ordering::Relaxed);
+        (timestamp > 0).then_some(timestamp as f64)
+    }
+
+    fn update_queue(&self, queue: &RemoteWriteQueue) {
+        self.queue_batches
+            .store(queue.queued_batches() as u64, Ordering::Relaxed);
+        self.queue_bytes
+            .store(queue.queued_bytes() as u64, Ordering::Relaxed);
+        self.dropped_batches_total
+            .store(queue.dropped_batches(), Ordering::Relaxed);
+    }
+}
 
 #[derive(Debug)]
 struct RemoteWriteQueue {
@@ -119,6 +183,7 @@ pub struct RemoteWriteOptions {
     pub interval: Duration,
     pub max_queue_bytes: usize,
     pub enabled_families: Vec<String>,
+    pub stats: Arc<RemoteWriteStats>,
 }
 
 /// Sends snapshots from the existing collector watch channel. The queue is
@@ -173,6 +238,7 @@ pub async fn run_remote_write(
                         "remote-write queue full; newest batch dropped"
                     );
                 }
+                options.stats.update_queue(&queue);
 
                 if Instant::now() < retry_after {
                     continue;
@@ -184,26 +250,36 @@ pub async fn run_remote_write(
                 match client.send(batch).await {
                     Ok(DeliveryStatus::Accepted) => {
                         queue.pop_front();
+                        options.stats.sent_batches_total.fetch_add(1, Ordering::Relaxed);
+                        let timestamp = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        options.stats.last_success_timestamp_seconds.store(timestamp, Ordering::Relaxed);
                         retry_attempt = 0;
                         retry_after = Instant::now();
                     }
                     Ok(DeliveryStatus::Retryable { status, retry_after: server_delay }) => {
+                        options.stats.retried_batches_total.fetch_add(1, Ordering::Relaxed);
                         retry_attempt = retry_attempt.saturating_add(1);
                         retry_after = Instant::now() + retry_delay(retry_attempt, server_delay);
                         debug!(status, retry_attempt, "remote-write receiver requested retry");
                     }
                     Ok(DeliveryStatus::Rejected { status }) => {
                         queue.pop_front();
+                        options.stats.rejected_batches_total.fetch_add(1, Ordering::Relaxed);
                         retry_attempt = 0;
                         retry_after = Instant::now();
                         warn!(status, "remote-write receiver rejected a batch; batch discarded");
                     }
                     Err(error) => {
+                        options.stats.retried_batches_total.fetch_add(1, Ordering::Relaxed);
                         retry_attempt = retry_attempt.saturating_add(1);
                         retry_after = Instant::now() + retry_delay(retry_attempt, None);
                         debug!(%error, retry_attempt, "remote-write delivery failed; batch retained");
                     }
                 }
+                options.stats.update_queue(&queue);
             }
         }
     }
@@ -320,8 +396,8 @@ fn parse_series(series: &str) -> Result<(&str, Vec<Label>), RemoteWriteError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        RemoteWriteError, RemoteWriteOptions, RemoteWriteQueue, Sample, WriteRequest, encode_v1,
-        retry_delay, run_remote_write,
+        RemoteWriteError, RemoteWriteOptions, RemoteWriteQueue, RemoteWriteStats, Sample,
+        WriteRequest, encode_v1, retry_delay, run_remote_write,
     };
     use native_monitor_domain::SystemSnapshot;
     use prost::Message;
@@ -469,6 +545,7 @@ mod tests {
                 interval: Duration::ZERO,
                 max_queue_bytes: 17 * 1024 * 1024,
                 enabled_families: Vec::new(),
+                stats: Arc::new(RemoteWriteStats::new(true)),
             },
         )
         .await;
@@ -483,6 +560,8 @@ mod tests {
             .expect("bind local fake remote-write receiver");
         let address = listener.local_addr().expect("receiver address");
         let (shutdown_sender, shutdown_receiver) = watch::channel(false);
+        let stats = Arc::new(RemoteWriteStats::new(true));
+        let worker_stats = Arc::clone(&stats);
         let mut snapshot = SystemSnapshot::starting();
         snapshot.captured_at_unix_ms = 1_234;
         snapshot.cpu.total_usage_percent = Some(50.0);
@@ -533,6 +612,7 @@ mod tests {
                 interval: Duration::from_secs(30),
                 max_queue_bytes: 4_096,
                 enabled_families: vec!["cpu".to_owned()],
+                stats: worker_stats,
             },
         ));
         let body = receiver.await.expect("receiver completed");
@@ -541,6 +621,10 @@ mod tests {
             .await
             .expect("worker task completed")
             .expect("worker shut down cleanly");
+        assert_eq!(stats.sent_batches_total(), 1);
+        assert_eq!(stats.queue_batches(), 0);
+        assert_eq!(stats.queue_bytes(), 0);
+        assert!(stats.last_success_timestamp_seconds().is_some());
 
         let decompressed = Decoder::new()
             .decompress_vec(&body)

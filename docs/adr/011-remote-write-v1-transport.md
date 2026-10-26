@@ -27,6 +27,11 @@ retries transitórios e credenciais guardadas fora do TOML.
   respostas 4xx permanentes sem retry cego. Um timeout pode deixar o resultado
   remoto incerto; repetir o mesmo timestamp/amostra pode duplicar requisições,
   então não se promete exactly-once.
+- Manter contadores atômicos em memória compartilhados entre o worker e o
+  endpoint pull: habilitado, lotes/bytes pendentes, sucessos, tentativas
+  transitórias, rejeições permanentes, descartes por fila cheia e timestamp do
+  último sucesso. Não adicionar labels com endpoint, host ou credenciais. Esses
+  valores reiniciam junto com o agente e não substituem spool durável.
 - Não configurar autenticação nesta fatia: credential stores nativos, rotação,
   revogação e credential_ref permanecem pendentes. A configuração aceita apenas
   receptores que não exijam autenticação até essa integração existir.

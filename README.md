@@ -86,6 +86,9 @@ memória, limitada a 16 MiB por padrão, e o envio não impede a coleta. O desti
 exige HTTPS, exceto HTTP em loopback para laboratórios locais. Nesta fatia, ainda
 não há integração com credential stores nem spool durável: use somente
 receptores que não exijam autenticação até essa integração ser concluída.
+Quando o pull também estiver ativo, `health` publica as métricas
+`native_monitor_remote_write_*` de habilitação, fila, sucessos, retries,
+rejeições, descartes e último sucesso; são contadores/estado voláteis do processo.
 O ensaio local reproduzível é `scripts/test-victoriametrics-remote-write.sh`;
 ele compila o agente, inicia um VictoriaMetrics descartável em loopback, verifica
 a série CPU e remove somente os recursos criados pelo ensaio. Requer Docker
