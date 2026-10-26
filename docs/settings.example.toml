@@ -5,3 +5,6 @@ max_processes_per_response = 1000
 [export.prometheus]
 enabled = false
 listen = "127.0.0.1:9464"
+# Empty exports every supported family; otherwise select from cpu, memory,
+# storage, network, gpu, battery, and health.
+families = []

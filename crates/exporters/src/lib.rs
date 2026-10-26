@@ -21,8 +21,10 @@ pub async fn serve(
     listener: TcpListener,
     snapshots: watch::Receiver<Arc<SystemSnapshot>>,
     mut shutdown: watch::Receiver<bool>,
+    enabled_families: Vec<String>,
 ) -> io::Result<()> {
     let mut clients = JoinSet::new();
+    let enabled_families = Arc::new(enabled_families);
 
     loop {
         tokio::select! {
@@ -47,8 +49,14 @@ pub async fn serve(
                     continue;
                 }
                 let snapshots = snapshots.clone();
+                let enabled_families = Arc::clone(&enabled_families);
                 clients.spawn(async move {
-                    match timeout(REQUEST_TIMEOUT, handle_client(stream, snapshots)).await {
+                    match timeout(
+                        REQUEST_TIMEOUT,
+                        handle_client(stream, snapshots, enabled_families),
+                    )
+                    .await
+                    {
                         Ok(Ok(())) => {}
                         Ok(Err(error)) => debug!(%peer, %error, "metrics scrape failed"),
                         Err(_) => debug!(%peer, "metrics scrape timed out"),
@@ -65,6 +73,7 @@ pub async fn serve(
 async fn handle_client(
     mut stream: TcpStream,
     snapshots: watch::Receiver<Arc<SystemSnapshot>>,
+    enabled_families: Arc<Vec<String>>,
 ) -> io::Result<()> {
     let mut request = Vec::with_capacity(512);
     let mut chunk = [0_u8; 512];
@@ -140,7 +149,7 @@ async fn handle_client(
     }
 
     let snapshot = snapshots.borrow().clone();
-    let body = render_prometheus(&snapshot);
+    let body = render_prometheus_for_families(&snapshot, &enabled_families);
     write_response(stream, 200, "OK", METRICS_CONTENT_TYPE, &body).await
 }
 
@@ -161,6 +170,10 @@ async fn write_response(
 }
 
 pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
+    render_prometheus_for_families(snapshot, &[])
+}
+
+fn render_prometheus_for_families(snapshot: &SystemSnapshot, enabled: &[String]) -> String {
     let mut output = String::with_capacity(2_048);
     for (name, unit, help) in METRIC_FAMILIES {
         let _ = writeln!(output, "# HELP {name} {help}");
@@ -476,7 +489,55 @@ pub fn render_prometheus(snapshot: &SystemSnapshot) -> String {
     );
 
     output.push_str("# EOF\n");
-    output
+    if enabled.is_empty() {
+        return output;
+    }
+
+    let mut filtered = String::with_capacity(output.len());
+    for line in output.lines() {
+        if line == "# EOF" {
+            filtered.push_str(line);
+            filtered.push('\n');
+            continue;
+        }
+        let metric_name = line
+            .strip_prefix("# HELP ")
+            .or_else(|| line.strip_prefix("# TYPE "))
+            .or_else(|| line.strip_prefix("# UNIT "))
+            .unwrap_or_else(|| line.split(['{', ' ']).next().unwrap_or_default());
+        let Some(family) = metric_family(metric_name) else {
+            continue;
+        };
+        if family == "health" || enabled.iter().any(|candidate| candidate == family) {
+            filtered.push_str(line);
+            filtered.push('\n');
+        }
+    }
+    filtered
+}
+
+fn metric_family(name: &str) -> Option<&'static str> {
+    if name.starts_with("native_monitor_cpu_") {
+        Some("cpu")
+    } else if name.starts_with("native_monitor_memory_") {
+        Some("memory")
+    } else if name.starts_with("native_monitor_disk_") || name.starts_with("native_monitor_volume_")
+    {
+        Some("storage")
+    } else if name.starts_with("native_monitor_network_") {
+        Some("network")
+    } else if name.starts_with("native_monitor_gpu_") {
+        Some("gpu")
+    } else if name.starts_with("native_monitor_battery_") {
+        Some("battery")
+    } else if name == "native_monitor_snapshot_timestamp_seconds"
+        || name == "native_monitor_collector_up"
+        || name == "native_monitor_exporter_truncated_series"
+    {
+        Some("health")
+    } else {
+        None
+    }
 }
 
 use std::fmt::Write;
@@ -692,7 +753,7 @@ pub async fn bind_loopback(address: SocketAddr) -> io::Result<TcpListener> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bind_loopback, render_prometheus, serve};
+    use super::{bind_loopback, render_prometheus, render_prometheus_for_families, serve};
     use native_monitor_domain::{
         BatteryMetrics, BlockDeviceMetrics, CpuMetrics, MetricStatus, NetworkInterfaceMetrics,
         SystemSnapshot,
@@ -788,6 +849,22 @@ mod tests {
         assert!(output.contains("native_monitor_exporter_truncated_series 1"));
     }
 
+    #[test]
+    fn filters_metric_families_without_dropping_health_metrics() {
+        let mut snapshot = SystemSnapshot::starting();
+        snapshot.cpu.total_usage_percent = Some(40.0);
+        snapshot.memory.total_bytes = Some(1_024);
+        let enabled = vec!["cpu".to_owned()];
+
+        let output = render_prometheus_for_families(&snapshot, &enabled);
+
+        assert!(output.contains("# TYPE native_monitor_cpu_utilization_ratio gauge"));
+        assert!(output.contains("native_monitor_cpu_utilization_ratio 0.4"));
+        assert!(output.contains("native_monitor_collector_up{collector=\"cpu\"}"));
+        assert!(!output.contains("native_monitor_memory_total_bytes"));
+        assert!(output.ends_with("# EOF\n"));
+    }
+
     #[tokio::test]
     async fn serves_metrics_over_loopback_and_closes_gracefully() {
         let listener = bind_loopback(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
@@ -797,7 +874,12 @@ mod tests {
         let (snapshot_sender, snapshot_receiver) =
             watch::channel(Arc::new(SystemSnapshot::starting()));
         let (shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let server = tokio::spawn(serve(listener, snapshot_receiver, shutdown_receiver));
+        let server = tokio::spawn(serve(
+            listener,
+            snapshot_receiver,
+            shutdown_receiver,
+            Vec::new(),
+        ));
 
         let mut client = TcpStream::connect(address)
             .await

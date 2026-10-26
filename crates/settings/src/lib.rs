@@ -22,6 +22,7 @@ pub struct ExportSettings {
 pub struct PrometheusSettings {
     pub enabled: bool,
     pub listen: SocketAddr,
+    pub families: Vec<String>,
 }
 
 impl Default for AgentSettings {
@@ -40,6 +41,7 @@ impl Default for PrometheusSettings {
         Self {
             enabled: false,
             listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9_464),
+            families: Vec::new(),
         }
     }
 }
@@ -70,6 +72,15 @@ impl AgentSettings {
             return Err(SettingsError::InvalidPrometheusListener);
         }
 
+        for family in &self.export.prometheus.families {
+            if !matches!(
+                family.as_str(),
+                "cpu" | "memory" | "storage" | "network" | "gpu" | "battery" | "health"
+            ) {
+                return Err(SettingsError::InvalidPrometheusFamily(family.clone()));
+            }
+        }
+
         Ok(())
     }
 }
@@ -86,6 +97,8 @@ pub enum SettingsError {
     InvalidProcessLimit,
     #[error("prometheus.listen must use a loopback address and a non-zero port when enabled")]
     InvalidPrometheusListener,
+    #[error("unsupported Prometheus metric family: {0}")]
+    InvalidPrometheusFamily(String),
 }
 
 #[cfg(test)]
@@ -158,5 +171,21 @@ mod tests {
         .expect_err("enabled exporter needs a discoverable fixed port");
 
         assert!(matches!(error, SettingsError::InvalidPrometheusListener));
+    }
+
+    #[test]
+    fn accepts_only_supported_prometheus_metric_families() {
+        let settings = AgentSettings::parse_toml(
+            "[export.prometheus]\nfamilies = ['cpu', 'memory', 'storage']\n",
+        )
+        .expect("known metric families are accepted");
+        assert_eq!(
+            settings.export.prometheus.families,
+            vec!["cpu", "memory", "storage"]
+        );
+
+        let error = AgentSettings::parse_toml("[export.prometheus]\nfamilies = ['processes']\n")
+            .expect_err("unknown metric family is rejected");
+        assert!(matches!(error, SettingsError::InvalidPrometheusFamily(_)));
     }
 }

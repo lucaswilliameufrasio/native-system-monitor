@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
     let capabilities = Arc::new(collector.capabilities());
     let metrics_snapshot_receiver = snapshot_receiver.clone();
     let metrics_shutdown_receiver = shutdown_receiver.clone();
+    let metrics_families = settings.export.prometheus.families.clone();
 
     let worker = thread::Builder::new()
         .name("native-monitor-collector".to_owned())
@@ -98,9 +99,14 @@ async fn main() -> Result<()> {
         ) => result,
         result = async {
             if let Some(listener) = metrics_listener {
-                serve_metrics(listener, metrics_snapshot_receiver, metrics_shutdown_receiver)
-                    .await
-                    .map_err(anyhow::Error::from)
+                serve_metrics(
+                    listener,
+                    metrics_snapshot_receiver,
+                    metrics_shutdown_receiver,
+                    metrics_families,
+                )
+                .await
+                .map_err(anyhow::Error::from)
             } else {
                 pending().await
             }

@@ -23,6 +23,10 @@ exportação.
 - Limitar a 128 séries por família de dispositivos/volumes/baterias/GPU e 512
   núcleos; publicar `native_monitor_exporter_truncated_series` quando o limite
   omitir alguma série.
+- Permitir allowlist de famílias (`cpu`, `memory`, `storage`, `network`, `gpu`,
+  `battery`, `health`). Lista vazia preserva todas as famílias; configuração
+  desconhecida é rejeitada. As métricas de saúde do agente/exporter permanecem
+  disponíveis quando qualquer allowlist está ativa.
 - Exportar somente gauges agregados/topologia de dispositivos com aliases
   (`block0`, `interface0`, `gpu0`, `battery0`), nunca nome do dispositivo,
   modelo, serial, nome de usuário ou métricas por processo. Campos ausentes e
@@ -41,7 +45,7 @@ exportação.
 ## Consequências e revisão
 
 Essa fatia demonstra configuração, renderização e scrape loopback; não
-implementa ainda seleção de famílias, Remote Write, fila/backoff, credential
+implementa ainda Remote Write, fila/backoff, credential
 stores, testes de receptor VictoriaMetrics/Prometheus nem laboratórios Docker.
 Revisitar os limites concorrentes após benchmark de scrape representativo; nunca
 ampliar bind além de loopback sem decisão e revisão de segurança próprias.

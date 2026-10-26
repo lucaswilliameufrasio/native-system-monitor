@@ -78,8 +78,10 @@ cargo run -p native-monitor-agent -- run docs/settings.example.toml
 O endpoint de scrape Prometheus é opcional e permanece desativado no exemplo.
 Para habilitá-lo, altere `[export.prometheus]` para `enabled = true`; ele só
 aceita um endereço loopback, por exemplo `127.0.0.1:9464`. Scrape local pode ser
-verificado com `curl http://127.0.0.1:9464/metrics`. Remote Write ainda não está
-implementado.
+verificado com `curl http://127.0.0.1:9464/metrics`. `families` aceita uma
+allowlist entre `cpu`, `memory`, `storage`, `network`, `gpu` e `battery`; a
+família `health` é sempre preservada e lista vazia significa todas. Remote Write
+ainda não está implementado.
 
 ## Estrutura inicial
 
