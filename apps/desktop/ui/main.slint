@@ -267,6 +267,7 @@ export component MainWindow inherits Window {
     in-out property <string> swap-value: "—";
     in-out property <string> swap-status: "Aguardando primeira amostra";
     in-out property <string> process-count: "—";
+    in-out property <string> process-count-description: "—";
     in-out property <string> sort-key: "cpu";
     in-out property <bool> sort-descending: true;
     in-out property <string> cpu-history-start-label: "início";
@@ -533,7 +534,7 @@ export component MainWindow inherits Window {
                         height: 32px;
                         Text { text: root.language == UiLanguage.en_us ? "Processes" : "Processos"; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: root.process-count + (root.language == UiLanguage.en_us ? " visible" : " visíveis"); color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                        Text { text: root.process-count-description; color: #8493a5; font-size: 12px; vertical-alignment: center; }
                     }
 
                     Rectangle {

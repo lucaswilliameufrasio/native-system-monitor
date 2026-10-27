@@ -821,6 +821,9 @@ fn main() -> Result<()> {
                                 window.set_swap_status(SharedString::from(swap_status));
                                 window
                                     .set_process_count(SharedString::from(rows.len().to_string()));
+                                window.set_process_count_description(SharedString::from(
+                                    process_count_description(rows.len(), locale),
+                                ));
                                 window.set_selected_process_key(selected_process_key);
                                 window.set_process_tree(ModelRc::new(VecModel::from(process_tree)));
                                 window.set_process_tree_status(SharedString::from(process_tree_status));
@@ -898,6 +901,7 @@ fn main() -> Result<()> {
                                     locale.agent_disconnected(),
                                 ));
                                 window.set_process_count(SharedString::from("—"));
+                                window.set_process_count_description(SharedString::from("—"));
                                 window.set_selected_process_key(SharedString::from(""));
                                 clear_selected_process(&window);
                                 window.set_processes(ModelRc::new(VecModel::from(Vec::new())));
@@ -1392,6 +1396,15 @@ fn localize_history_label(value: String, locale: Locale) -> String {
     }
 }
 
+fn process_count_description(count: usize, locale: Locale) -> String {
+    match (count, locale) {
+        (1, Locale::EnUs) => "1 process visible".to_owned(),
+        (_, Locale::EnUs) => format!("{count} processes visible"),
+        (1, Locale::PtBr) => "1 processo visível".to_owned(),
+        (_, Locale::PtBr) => format!("{count} processos visíveis"),
+    }
+}
+
 fn unix_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1442,9 +1455,9 @@ mod tests {
         FIVE_MINUTES_MS, Locale, MainPage, MainWindow, ONE_MINUTE_MS, ProcessRow, ProcessSort,
         SortKey, UiLanguage, compare_optional_cpu, downsample_max, find_selected_process,
         format_bytes, format_bytes_per_second, lifecycle_status, localize_history_label,
-        memory_percentage, memory_summary, metric_status_label, process_identity_key,
-        process_start_age_label, process_tree_rows, sample_age_label, select_history,
-        sort_processes, swap_summary, unavailable_status,
+        memory_percentage, memory_summary, metric_status_label, process_count_description,
+        process_identity_key, process_start_age_label, process_tree_rows, sample_age_label,
+        select_history, sort_processes, swap_summary, unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
@@ -1499,6 +1512,30 @@ mod tests {
 
         assert!(history.is_empty());
         assert_eq!(localize_history_label(label, Locale::EnUs), "no data");
+    }
+
+    #[test]
+    fn process_count_description_uses_localized_singular_and_plural_forms() {
+        assert_eq!(
+            process_count_description(1, Locale::EnUs),
+            "1 process visible"
+        );
+        assert_eq!(
+            process_count_description(2, Locale::EnUs),
+            "2 processes visible"
+        );
+        assert_eq!(
+            process_count_description(1, Locale::PtBr),
+            "1 processo visível"
+        );
+        assert_eq!(
+            process_count_description(2, Locale::PtBr),
+            "2 processos visíveis"
+        );
+        assert_eq!(
+            process_count_description(0, Locale::PtBr),
+            "0 processos visíveis"
+        );
     }
 
     #[test]
