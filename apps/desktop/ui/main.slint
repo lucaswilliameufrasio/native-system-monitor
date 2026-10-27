@@ -135,6 +135,7 @@ component RangeChoice inherits Rectangle {
 }
 
 component SortHeader inherits Rectangle {
+    in property <UiLanguage> language: UiLanguage.pt_br;
     in property <string> label;
     in property <string> key;
     in property <string> active-key;
@@ -142,7 +143,9 @@ component SortHeader inherits Rectangle {
     callback requested(string);
     accessible-role: button;
     accessible-label: label;
-    accessible-description: active-key == key ? (descending ? "Classificação decrescente" : "Classificação crescente") : "Não ordenado por esta coluna";
+    accessible-description: language == UiLanguage.en_us
+        ? (active-key == key ? (descending ? "Sorted descending" : "Sorted ascending") : "Not sorted by this column")
+        : (active-key == key ? (descending ? "Classificação decrescente" : "Classificação crescente") : "Não ordenado por esta coluna");
     accessible-action-default => { root.requested(root.key); }
     min-width: 0px;
     height: 28px;
@@ -561,6 +564,7 @@ export component MainWindow inherits Window {
                                 height: 28px;
                                 spacing: 8px;
                                 SortHeader {
+                                    language: root.language;
                                     horizontal-stretch: 1;
                                     label: root.language == UiLanguage.en_us ? "Process" : "Processo";
                                     key: "name";
@@ -569,6 +573,7 @@ export component MainWindow inherits Window {
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
+                                    language: root.language;
                                     width: 58px;
                                     label: "PID";
                                     key: "pid";
@@ -577,6 +582,7 @@ export component MainWindow inherits Window {
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
+                                    language: root.language;
                                     width: 58px;
                                     label: "PPID";
                                     key: "parent";
@@ -585,6 +591,7 @@ export component MainWindow inherits Window {
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
+                                    language: root.language;
                                     width: 66px;
                                     label: "CPU %";
                                     key: "cpu";
@@ -593,6 +600,7 @@ export component MainWindow inherits Window {
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
+                                    language: root.language;
                                     width: 136px;
                                     label: root.language == UiLanguage.en_us ? "Memory MiB / %" : "RAM MiB / %";
                                     key: "memory";
@@ -674,7 +682,9 @@ export component MainWindow inherits Window {
                                 Text {
                                     width: parent.width;
                                     height: parent.height;
-                                    text: root.agent-connected ? "Nenhum processo corresponde ao filtro." : "Aguardando conexão com o agente…";
+                                    text: root.agent-connected
+                                        ? (root.language == UiLanguage.en_us ? "No processes match the filter." : "Nenhum processo corresponde ao filtro.")
+                                        : (root.language == UiLanguage.en_us ? "Waiting for agent connection…" : "Aguardando conexão com o agente…");
                                     color: #8493a5;
                                     font-size: 13px;
                                     horizontal-alignment: center;
@@ -687,7 +697,9 @@ export component MainWindow inherits Window {
                                 for process in root.processes: Rectangle {
                                     height: 32px;
                                     accessible-role: list-item;
-                                    accessible-label: process.name + ", PID " + process.pid + ", CPU " + process.cpu + ", memória " + process.memory + " MiB";
+                                    accessible-label: root.language == UiLanguage.en_us
+                                        ? process.name + ", PID " + process.pid + ", CPU " + process.cpu + ", memory " + process.memory + " MiB"
+                                        : process.name + ", PID " + process.pid + ", CPU " + process.cpu + ", memória " + process.memory + " MiB";
                                     accessible-item-selectable: true;
                                     accessible-item-selected: process.key == root.selected-process-key;
                                     accessible-action-default => { process-row-hit-target.clicked(); }
@@ -855,7 +867,7 @@ export component MainWindow inherits Window {
                         height: 32px;
                         Text { text: root.language == UiLanguage.en_us ? "Storage" : "Armazenamento"; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: root.volumes.length + (root.language == UiLanguage.en_us ? " volumes" : " volumes"); color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                        Text { text: root.volumes.length + (root.volumes.length == 1 ? " volume" : " volumes"); color: #8493a5; font-size: 12px; vertical-alignment: center; }
                     }
 
                     Rectangle {
@@ -923,8 +935,8 @@ export component MainWindow inherits Window {
                                 Text { text: root.language == UiLanguage.en_us ? "Device" : "Dispositivo"; color: #9eacbd; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
                                 Text { text: root.language == UiLanguage.en_us ? "Read" : "Leitura"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
                                 Text { text: root.language == UiLanguage.en_us ? "Write" : "Escrita"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Read IOPS"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: "Write IOPS"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Read IOPS" : "IOPS leitura"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.language == UiLanguage.en_us ? "Write IOPS" : "IOPS gravação"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
                                 Text { text: root.language == UiLanguage.en_us ? "Busy" : "Ocupação"; color: #9eacbd; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
                             }
 
@@ -963,7 +975,7 @@ export component MainWindow inherits Window {
                         height: 32px;
                         Text { text: root.language == UiLanguage.en_us ? "Network" : "Rede"; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: root.network-interfaces.length + " interfaces"; color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                        Text { text: root.network-interfaces.length + (root.network-interfaces.length == 1 ? " interface" : " interfaces"); color: #8493a5; font-size: 12px; vertical-alignment: center; }
                     }
 
                     Rectangle {
