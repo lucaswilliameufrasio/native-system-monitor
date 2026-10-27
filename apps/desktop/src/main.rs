@@ -1656,6 +1656,29 @@ mod tests {
                 window.get_selected_process_memory_percent().as_str(),
                 "50.0%"
             );
+
+            let dispatch_shortcut = |digit: &str| {
+                use slint::platform::{Key, WindowEvent};
+
+                window.window().dispatch_event(WindowEvent::KeyPressed {
+                    text: Key::Control.into(),
+                });
+                window
+                    .window()
+                    .dispatch_event(WindowEvent::KeyPressed { text: digit.into() });
+                window
+                    .window()
+                    .dispatch_event(WindowEvent::KeyReleased { text: digit.into() });
+                window.window().dispatch_event(WindowEvent::KeyReleased {
+                    text: Key::Control.into(),
+                });
+            };
+
+            dispatch_shortcut("5");
+            assert_eq!(window.get_active_page(), MainPage::Network);
+            dispatch_shortcut("2");
+            assert_eq!(window.get_active_page(), MainPage::Processes);
+
             let mut language_selectors =
                 ElementHandle::find_by_element_id(&window, "MainWindow::language_en_us");
             language_selectors
