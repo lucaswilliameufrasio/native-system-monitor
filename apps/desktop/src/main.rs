@@ -607,6 +607,10 @@ fn main() -> Result<()> {
                             let cpu_start_label = localize_history_label(cpu_start_label, locale);
                             let memory_start_label =
                                 localize_history_label(memory_start_label, locale);
+                            let cpu_history_accessible_summary =
+                                chart_accessible_summary("CPU", &cpu_history, locale);
+                            let memory_history_accessible_summary =
+                                chart_accessible_summary("memory", &memory_history, locale);
                             let cpu_cores = snapshot
                                 .cpu
                                 .as_ref()
@@ -862,6 +866,12 @@ fn main() -> Result<()> {
                                 window.set_memory_history(ModelRc::new(VecModel::from(
                                     memory_history,
                                 )));
+                                window.set_cpu_history_accessible_summary(SharedString::from(
+                                    cpu_history_accessible_summary,
+                                ));
+                                window.set_memory_history_accessible_summary(SharedString::from(
+                                    memory_history_accessible_summary,
+                                ));
                                 window.set_cpu_history_start_label(SharedString::from(
                                     cpu_start_label,
                                 ));
@@ -1405,6 +1415,41 @@ fn process_count_description(count: usize, locale: Locale) -> String {
     }
 }
 
+fn chart_accessible_summary(title: &str, values: &[f32], locale: Locale) -> String {
+    let mut finite_values = values.iter().copied().filter(|value| value.is_finite());
+    let Some(first_value) = finite_values.next() else {
+        return if locale == Locale::EnUs {
+            format!("{title} chart, waiting for samples")
+        } else {
+            format!("Gráfico de {title}, aguardando amostras")
+        };
+    };
+
+    let mut minimum = first_value;
+    let mut maximum = first_value;
+    let mut latest = first_value;
+    let mut sample_count = 1usize;
+    for value in finite_values {
+        minimum = minimum.min(value);
+        maximum = maximum.max(value);
+        latest = value;
+        sample_count += 1;
+    }
+
+    if locale == Locale::EnUs {
+        format!(
+            "{title} chart, {sample_count} samples, minimum {:.1}%, maximum {:.1}%, latest {:.1}%",
+            minimum, maximum, latest
+        )
+    } else {
+        let localized_title = if title == "CPU" { "CPU" } else { "memória" };
+        format!(
+            "Gráfico de {localized_title}, {sample_count} amostras, mínimo {:.1}%, máximo {:.1}%, atual {:.1}%",
+            minimum, maximum, latest
+        )
+    }
+}
+
 fn unix_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1453,12 +1498,12 @@ fn initialize_logging() {
 mod tests {
     use super::{
         FIVE_MINUTES_MS, Locale, MainPage, MainWindow, ONE_MINUTE_MS, ProcessRow, ProcessSort,
-        SortKey, UiDensity, UiLanguage, compare_optional_cpu, downsample_max,
-        find_selected_process, format_bytes, format_bytes_per_second, lifecycle_status,
-        localize_history_label, memory_percentage, memory_summary, metric_status_label,
-        process_count_description, process_identity_key, process_start_age_label,
-        process_tree_rows, sample_age_label, select_history, sort_processes, swap_summary,
-        unavailable_status,
+        SortKey, UiDensity, UiLanguage, chart_accessible_summary, compare_optional_cpu,
+        downsample_max, find_selected_process, format_bytes, format_bytes_per_second,
+        lifecycle_status, localize_history_label, memory_percentage, memory_summary,
+        metric_status_label, process_count_description, process_identity_key,
+        process_start_age_label, process_tree_rows, sample_age_label, select_history,
+        sort_processes, swap_summary, unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
@@ -1536,6 +1581,24 @@ mod tests {
         assert_eq!(
             process_count_description(0, Locale::PtBr),
             "0 processos visíveis"
+        );
+    }
+
+    #[test]
+    fn chart_accessible_summary_reports_range_latest_and_ignores_non_finite_samples() {
+        let samples = [10.0, f32::NAN, 35.5, 20.0, f32::INFINITY];
+
+        assert_eq!(
+            chart_accessible_summary("CPU", &samples, Locale::EnUs),
+            "CPU chart, 3 samples, minimum 10.0%, maximum 35.5%, latest 20.0%"
+        );
+        assert_eq!(
+            chart_accessible_summary("CPU", &[], Locale::PtBr),
+            "Gráfico de CPU, aguardando amostras"
+        );
+        assert_eq!(
+            chart_accessible_summary("memory", &[20.0, 40.0], Locale::PtBr),
+            "Gráfico de memória, 2 amostras, mínimo 20.0%, máximo 40.0%, atual 40.0%"
         );
     }
 
@@ -1652,6 +1715,24 @@ mod tests {
 
         slint::spawn_local(async move {
             let window = MainWindow::new().expect("create the test window");
+            let expected_chart_summary =
+                "CPU chart, 2 samples, minimum 12.0%, maximum 28.0%, latest 28.0%";
+            window.set_cpu_history_accessible_summary(SharedString::from(expected_chart_summary));
+            let mut charts = ElementHandle::find_by_element_id(&window, "MainWindow::cpu_chart");
+            let chart = charts.next().expect("find the CPU history chart");
+            assert!(charts.next().is_none());
+            assert_eq!(
+                chart.accessible_role(),
+                Some(i_slint_backend_testing::AccessibleRole::Image)
+            );
+            assert_eq!(
+                chart
+                    .accessible_label()
+                    .expect("the chart exposes an accessible summary")
+                    .as_str(),
+                expected_chart_summary
+            );
+
             window.set_active_page(MainPage::Processes);
             window.set_processes(ModelRc::new(VecModel::from(vec![ProcessRow {
                 key: SharedString::from("42:1700000000"),

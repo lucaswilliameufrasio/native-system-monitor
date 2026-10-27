@@ -168,6 +168,9 @@ component SortHeader inherits Rectangle {
 
 component ChartPanel inherits Rectangle {
     in property <UiLanguage> language: UiLanguage.pt_br;
+    in property <string> accessible-summary;
+    accessible-role: image;
+    accessible-label: accessible-summary;
     min-width: 0px;
     in property <string> title;
     in property <[float]> points;
@@ -275,6 +278,8 @@ export component MainWindow inherits Window {
     in-out property <bool> sort-descending: true;
     in-out property <string> cpu-history-start-label: "início";
     in-out property <string> memory-history-start-label: "início";
+    in-out property <string> cpu-history-accessible-summary: "Gráfico de CPU aguardando amostras";
+    in-out property <string> memory-history-accessible-summary: "Gráfico de memória aguardando amostras";
     in-out property <string> selected-process-key: "";
     in-out property <bool> has-selected-process: false;
     in-out property <string> selected-process-name: "";
@@ -530,18 +535,20 @@ export component MainWindow inherits Window {
                     HorizontalLayout {
                         vertical-stretch: 1;
                         spacing: 12px;
-                        ChartPanel {
+                        cpu_chart := ChartPanel {
                             language: root.language;
                             horizontal-stretch: 1;
                             title: root.language == UiLanguage.en_us ? "CPU usage" : "Uso de CPU";
+                            accessible-summary: root.cpu-history-accessible-summary;
                             points: root.cpu-history;
                             accent: #70b5ff;
                             range-start: root.cpu-history-start-label;
                         }
-                        ChartPanel {
+                        memory_chart := ChartPanel {
                             language: root.language;
                             horizontal-stretch: 1;
                             title: root.language == UiLanguage.en_us ? "Memory usage" : "Uso de memória";
+                            accessible-summary: root.memory-history-accessible-summary;
                             points: root.memory-history;
                             accent: #50c99a;
                             range-start: root.memory-history-start-label;
