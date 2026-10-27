@@ -1733,7 +1733,46 @@ mod tests {
                 expected_chart_summary
             );
 
+            let mut overview_tabs = ElementHandle::find_by_accessible_label(&window, "Visão geral");
+            let overview_tab = overview_tabs.next().expect("find the overview tab");
+            assert_eq!(
+                overview_tab.accessible_role(),
+                Some(i_slint_backend_testing::AccessibleRole::Tab)
+            );
+            assert_eq!(overview_tab.accessible_item_selected(), Some(true));
+
             window.set_active_page(MainPage::Processes);
+            let mut process_tabs = ElementHandle::find_by_accessible_label(&window, "Processos");
+            let process_tab = process_tabs.next().expect("find the process tab");
+            assert_eq!(process_tab.accessible_item_selected(), Some(true));
+            assert_eq!(overview_tab.accessible_item_selected(), Some(false));
+
+            let mut filter_fields = ElementHandle::find_by_accessible_label(
+                &window,
+                "Filtrar processos por nome ou PID",
+            );
+            let filter_field = filter_fields.next().expect("find the process filter");
+            assert_eq!(
+                filter_field.accessible_role(),
+                Some(i_slint_backend_testing::AccessibleRole::TextInput)
+            );
+
+            let mut process_headers = ElementHandle::find_by_accessible_label(&window, "Processo");
+            let process_header = process_headers
+                .next()
+                .expect("find the process sort header");
+            assert_eq!(
+                process_header.accessible_role(),
+                Some(i_slint_backend_testing::AccessibleRole::Button)
+            );
+            assert_eq!(
+                process_header
+                    .accessible_description()
+                    .expect("the process sort header describes its sort state")
+                    .as_str(),
+                "Não ordenado por esta coluna"
+            );
+
             window.set_processes(ModelRc::new(VecModel::from(vec![ProcessRow {
                 key: SharedString::from("42:1700000000"),
                 name: SharedString::from("fixture-worker"),
