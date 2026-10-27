@@ -1784,6 +1784,20 @@ mod tests {
                 memory_percent: SharedString::from("50.0%"),
             }])));
 
+            let mut process_rows = ElementHandle::find_by_accessible_label(
+                &window,
+                "fixture-worker, PID 42, CPU 1.0%, memória 4.0 MiB",
+            );
+            let process_row = process_rows
+                .next()
+                .expect("find the accessible process row");
+            assert_eq!(
+                process_row.accessible_role(),
+                Some(i_slint_backend_testing::AccessibleRole::ListItem)
+            );
+            assert_eq!(process_row.accessible_item_selectable(), Some(true));
+            assert_eq!(process_row.accessible_item_selected(), Some(false));
+
             let selected_key = Rc::new(RefCell::new(None::<String>));
             window.on_process_selected({
                 let selected_key = Rc::clone(&selected_key);
@@ -1827,6 +1841,7 @@ mod tests {
 
             target.single_click(PointerEventButton::Left).await;
 
+            assert_eq!(process_row.accessible_item_selected(), Some(true));
             assert_eq!(selected_key.borrow().as_deref(), Some("42:1700000000"));
             assert_eq!(window.get_selected_process_key().as_str(), "42:1700000000");
             assert!(window.get_has_selected_process());
