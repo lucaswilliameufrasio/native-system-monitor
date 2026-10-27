@@ -246,6 +246,7 @@ component ChartPanel inherits Rectangle {
 }
 
 export component MainWindow inherits Window {
+    forward-focus: keyboard-shortcuts;
     in-out property <UiLanguage> language: UiLanguage.pt_br;
     title: language == UiLanguage.en_us ? "System Monitor" : "Monitor do Sistema";
     width: 1120px;
@@ -300,6 +301,31 @@ export component MainWindow inherits Window {
     callback history-range-selected(string);
     callback retry-agent();
     callback language-selected(string);
+
+    keyboard-shortcuts := FocusScope {
+        focus-on-tab-navigation: false;
+
+        KeyBinding {
+            keys: @keys(Control + "1");
+            activated => { root.active-page = MainPage.overview; }
+        }
+        KeyBinding {
+            keys: @keys(Control + "2");
+            activated => { root.active-page = MainPage.processes; }
+        }
+        KeyBinding {
+            keys: @keys(Control + "3");
+            activated => { root.active-page = MainPage.performance; }
+        }
+        KeyBinding {
+            keys: @keys(Control + "4");
+            activated => { root.active-page = MainPage.storage; }
+        }
+        KeyBinding {
+            keys: @keys(Control + "5");
+            activated => { root.active-page = MainPage.network; }
+        }
+    }
 
     VerticalBox {
         padding: 18px;
@@ -408,6 +434,13 @@ export component MainWindow inherits Window {
                         text: root.language == UiLanguage.en_us ? "Collection continues\nwhen the window is closed" : "A coleta continua\ncom a janela fechada";
                         color: #8292a5;
                         font-size: 11px;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: root.language == UiLanguage.en_us ? "Ctrl+1–5: switch pages" : "Ctrl+1–5: trocar páginas";
+                        accessible-label: root.language == UiLanguage.en_us ? "Keyboard shortcut: Control plus 1 through 5 switches pages" : "Atalho: Control mais 1 a 5 troca de página";
+                        color: #8292a5;
+                        font-size: 10px;
                         wrap: word-wrap;
                     }
                 }
