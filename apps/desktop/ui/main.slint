@@ -60,6 +60,7 @@ export struct GpuRow {
 enum MainPage { overview, processes, performance, storage, network }
 enum HistoryRange { one-minute, five-minutes }
 export enum UiLanguage { pt_br, en_us }
+export enum UiDensity { comfortable, compact }
 
 component MetricPanel inherits Rectangle {
     min-width: 0px;
@@ -84,13 +85,14 @@ component MetricPanel inherits Rectangle {
 component NavigationItem inherits Rectangle {
     in property <string> label;
     in property <bool> active;
+    in property <bool> compact;
     callback activated();
     accessible-role: tab;
     accessible-label: label;
     accessible-item-selectable: true;
     accessible-item-selected: active;
     accessible-action-default => { root.activated(); }
-    height: 42px;
+    height: compact ? 34px : 42px;
     border-radius: 6px;
     background: active ? #263a4c : transparent;
 
@@ -251,6 +253,7 @@ component ChartPanel inherits Rectangle {
 export component MainWindow inherits Window {
     forward-focus: keyboard-shortcuts;
     in-out property <UiLanguage> language: UiLanguage.pt_br;
+    in-out property <UiDensity> density: UiDensity.comfortable;
     title: language == UiLanguage.en_us ? "System Monitor" : "Monitor do Sistema";
     width: 1120px;
     height: 760px;
@@ -332,8 +335,8 @@ export component MainWindow inherits Window {
     }
 
     VerticalBox {
-        padding: 18px;
-        spacing: 14px;
+        padding: root.density == UiDensity.compact ? 12px : 18px;
+        spacing: root.density == UiDensity.compact ? 9px : 14px;
 
         HorizontalLayout {
             height: 54px;
@@ -387,6 +390,20 @@ export component MainWindow inherits Window {
                 accessible-label: "English (United States)";
                 activated => { root.language-selected("en-US"); }
             }
+            density_comfortable := RangeChoice {
+                width: 86px;
+                label: root.language == UiLanguage.en_us ? "Comfortable" : "Confortável";
+                active: root.density == UiDensity.comfortable;
+                accessible-label: root.language == UiLanguage.en_us ? "Comfortable density" : "Densidade confortável";
+                activated => { root.density = UiDensity.comfortable; }
+            }
+            density_compact := RangeChoice {
+                width: 74px;
+                label: root.language == UiLanguage.en_us ? "Compact" : "Compacta";
+                active: root.density == UiDensity.compact;
+                accessible-label: root.language == UiLanguage.en_us ? "Compact density" : "Densidade compacta";
+                activated => { root.density = UiDensity.compact; }
+            }
         }
 
         HorizontalLayout {
@@ -409,26 +426,31 @@ export component MainWindow inherits Window {
                     spacing: 6px;
                     Text { text: root.language == UiLanguage.en_us ? "MONITORING" : "MONITORAMENTO"; color: #8292a5; font-size: 10px; }
                     NavigationItem {
+                        compact: root.density == UiDensity.compact;
                         label: root.language == UiLanguage.en_us ? "Overview" : "Visão geral";
                         active: root.active-page == MainPage.overview;
                         activated => { root.active-page = MainPage.overview; }
                     }
                     NavigationItem {
+                        compact: root.density == UiDensity.compact;
                         label: root.language == UiLanguage.en_us ? "Processes" : "Processos";
                         active: root.active-page == MainPage.processes;
                         activated => { root.active-page = MainPage.processes; }
                     }
                     NavigationItem {
+                        compact: root.density == UiDensity.compact;
                         label: root.language == UiLanguage.en_us ? "Performance" : "Desempenho";
                         active: root.active-page == MainPage.performance;
                         activated => { root.active-page = MainPage.performance; }
                     }
                     NavigationItem {
+                        compact: root.density == UiDensity.compact;
                         label: root.language == UiLanguage.en_us ? "Storage" : "Armazenamento";
                         active: root.active-page == MainPage.storage;
                         activated => { root.active-page = MainPage.storage; }
                     }
                     NavigationItem {
+                        compact: root.density == UiDensity.compact;
                         label: root.language == UiLanguage.en_us ? "Network" : "Rede";
                         active: root.active-page == MainPage.network;
                         activated => { root.active-page = MainPage.network; }
@@ -528,7 +550,7 @@ export component MainWindow inherits Window {
                 }
 
                 if root.active-page == MainPage.processes: VerticalBox {
-                    spacing: 12px;
+                    spacing: root.density == UiDensity.compact ? 7px : 12px;
 
                     HorizontalLayout {
                         height: 32px;
@@ -545,11 +567,11 @@ export component MainWindow inherits Window {
                         vertical-stretch: 1;
 
                         VerticalBox {
-                            padding: 12px;
-                            spacing: 8px;
+                            padding: root.density == UiDensity.compact ? 8px : 12px;
+                            spacing: root.density == UiDensity.compact ? 5px : 8px;
 
                             HorizontalLayout {
-                                height: 38px;
+                                height: root.density == UiDensity.compact ? 30px : 38px;
                                 Text { text: root.language == UiLanguage.en_us ? "Process list" : "Lista de processos"; color: #e4ebf3; font-size: 14px; vertical-alignment: center; }
                                 Rectangle { horizontal-stretch: 1; background: transparent; }
                                 LineEdit {
@@ -562,7 +584,7 @@ export component MainWindow inherits Window {
                             }
 
                             HorizontalLayout {
-                                height: 28px;
+                                height: root.density == UiDensity.compact ? 24px : 28px;
                                 spacing: 8px;
                                 SortHeader {
                                     language: root.language;
@@ -612,7 +634,7 @@ export component MainWindow inherits Window {
                             }
 
                             Rectangle {
-                                height: 54px;
+                                height: root.density == UiDensity.compact ? 44px : 54px;
                                 background: #121922;
                                 border-radius: 5px;
                                 if root.has-selected-process: VerticalBox {
@@ -646,7 +668,7 @@ export component MainWindow inherits Window {
                             }
 
                             if root.has-selected-process: Rectangle {
-                                height: 124px;
+                                height: root.density == UiDensity.compact ? 96px : 124px;
                                 background: #19212b;
                                 border-color: #2c3744;
                                 border-width: 1px;
@@ -668,7 +690,7 @@ export component MainWindow inherits Window {
                                         vertical-stretch: 1;
                                         for item in root.process-tree: Text {
                                             x: item.depth * 14px;
-                                            height: 20px;
+                                            height: root.density == UiDensity.compact ? 16px : 20px;
                                             text: item.label;
                                             color: #a6b3c2;
                                             font-size: 11px;
@@ -696,7 +718,7 @@ export component MainWindow inherits Window {
                             if root.processes.length > 0: ListView {
                                 vertical-stretch: 1;
                                 for process in root.processes: Rectangle {
-                                    height: 32px;
+                                    height: root.density == UiDensity.compact ? 25px : 32px;
                                     accessible-role: list-item;
                                     accessible-label: root.language == UiLanguage.en_us
                                         ? process.name + ", PID " + process.pid + ", CPU " + process.cpu + ", memory " + process.memory + " MiB"

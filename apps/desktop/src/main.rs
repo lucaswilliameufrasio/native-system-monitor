@@ -1453,11 +1453,12 @@ fn initialize_logging() {
 mod tests {
     use super::{
         FIVE_MINUTES_MS, Locale, MainPage, MainWindow, ONE_MINUTE_MS, ProcessRow, ProcessSort,
-        SortKey, UiLanguage, compare_optional_cpu, downsample_max, find_selected_process,
-        format_bytes, format_bytes_per_second, lifecycle_status, localize_history_label,
-        memory_percentage, memory_summary, metric_status_label, process_count_description,
-        process_identity_key, process_start_age_label, process_tree_rows, sample_age_label,
-        select_history, sort_processes, swap_summary, unavailable_status,
+        SortKey, UiDensity, UiLanguage, compare_optional_cpu, downsample_max,
+        find_selected_process, format_bytes, format_bytes_per_second, lifecycle_status,
+        localize_history_label, memory_percentage, memory_summary, metric_status_label,
+        process_count_description, process_identity_key, process_start_age_label,
+        process_tree_rows, sample_age_label, select_history, sort_processes, swap_summary,
+        unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
@@ -1684,6 +1685,25 @@ mod tests {
                 ElementHandle::find_by_element_id(&window, "MainWindow::process_row_hit_target");
             let target = targets.next().expect("find the process row hit target");
             assert!(targets.next().is_none());
+
+            assert_eq!(window.get_density(), UiDensity::Comfortable);
+            let mut compact_choices =
+                ElementHandle::find_by_element_id(&window, "MainWindow::density_compact");
+            let compact_choice = compact_choices
+                .next()
+                .expect("find the compact density choice");
+            compact_choice.single_click(PointerEventButton::Left).await;
+            assert_eq!(window.get_density(), UiDensity::Compact);
+
+            let mut comfortable_choices =
+                ElementHandle::find_by_element_id(&window, "MainWindow::density_comfortable");
+            let comfortable_choice = comfortable_choices
+                .next()
+                .expect("find the comfortable density choice");
+            comfortable_choice
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert_eq!(window.get_density(), UiDensity::Comfortable);
 
             target.single_click(PointerEventButton::Left).await;
 
