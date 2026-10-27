@@ -1441,9 +1441,10 @@ mod tests {
     use super::{
         FIVE_MINUTES_MS, Locale, MainPage, MainWindow, ONE_MINUTE_MS, ProcessRow, ProcessSort,
         SortKey, UiLanguage, compare_optional_cpu, downsample_max, find_selected_process,
-        format_bytes, format_bytes_per_second, lifecycle_status, memory_percentage, memory_summary,
-        metric_status_label, process_identity_key, process_start_age_label, process_tree_rows,
-        sample_age_label, select_history, sort_processes, swap_summary, unavailable_status,
+        format_bytes, format_bytes_per_second, lifecycle_status, localize_history_label,
+        memory_percentage, memory_summary, metric_status_label, process_identity_key,
+        process_start_age_label, process_tree_rows, sample_age_label, select_history,
+        sort_processes, swap_summary, unavailable_status,
     };
     use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_ipc::wire::ProcessMetrics;
@@ -1489,6 +1490,15 @@ mod tests {
 
         assert_eq!(history, vec![12.0, 20.0]);
         assert_eq!(label, "início");
+        assert_eq!(localize_history_label(label, Locale::EnUs), "start");
+    }
+
+    #[test]
+    fn empty_history_label_is_localized_for_english() {
+        let (history, label) = select_history(&[], 1_000, FIVE_MINUTES_MS, 72);
+
+        assert!(history.is_empty());
+        assert_eq!(localize_history_label(label, Locale::EnUs), "no data");
     }
 
     #[test]
