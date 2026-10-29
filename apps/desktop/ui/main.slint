@@ -258,8 +258,10 @@ export component MainWindow inherits Window {
     in-out property <UiLanguage> language: UiLanguage.pt_br;
     in-out property <UiDensity> density: UiDensity.comfortable;
     title: language == UiLanguage.en_us ? "System Monitor" : "Monitor do Sistema";
-    width: 1120px;
-    height: 760px;
+    preferred-width: 1120px;
+    preferred-height: 720px;
+    min-width: 900px;
+    min-height: 600px;
     background: #11161d;
 
     in-out property <string> agent-status: "Conectando ao agente…";
@@ -345,10 +347,10 @@ export component MainWindow inherits Window {
 
         HorizontalLayout {
             height: 54px;
-            spacing: 14px;
+            spacing: 8px;
 
             VerticalBox {
-                width: 205px;
+                width: 240px;
                 spacing: 2px;
                 Text { text: root.language == UiLanguage.en_us ? "System Monitor" : "Monitor do Sistema"; color: #edf2f7; font-size: 23px; }
                 Text { text: root.language == UiLanguage.en_us ? "A clear view of your computer" : "Visibilidade clara do seu computador"; color: #8493a5; font-size: 11px; }
@@ -357,10 +359,13 @@ export component MainWindow inherits Window {
             Rectangle { horizontal-stretch: 1; background: transparent; }
 
             VerticalBox {
-                width: 220px;
+                width: 200px;
                 spacing: 2px;
                 Text {
-                    text: agent-status;
+                    text: agent-connected
+                        ? (root.language == UiLanguage.en_us ? "Agent active" : "Agente ativo")
+                        : (root.language == UiLanguage.en_us ? "Agent unavailable" : "Agente indisponível");
+                    accessible-label: agent-status;
                     accessible-live-region: polite;
                     color: agent-connected && agent-startup-configured ? #77d7ad : #f0bd69;
                     font-size: 12px;
@@ -376,20 +381,20 @@ export component MainWindow inherits Window {
             }
 
             if !agent-connected || !agent-startup-configured: RangeChoice {
-                width: 126px;
+                width: 112px;
                 label: agent-connected ? (root.language == UiLanguage.en_us ? "Setup startup" : "Configurar início") : (root.language == UiLanguage.en_us ? "Retry connection" : "Tentar conexão");
                 active: false;
                 activated => { root.retry-agent(); }
             }
             language_pt_br := RangeChoice {
-                width: 52px;
+                width: 44px;
                 label: "PT";
                 active: root.language == UiLanguage.pt_br;
                 accessible-label: "Português (Brasil)";
                 activated => { root.language-selected("pt-BR"); }
             }
             language_en_us := RangeChoice {
-                width: 52px;
+                width: 44px;
                 label: "EN";
                 active: root.language == UiLanguage.en_us;
                 accessible-label: "English (United States)";
@@ -492,7 +497,56 @@ export component MainWindow inherits Window {
                         Text { text: root.language == UiLanguage.en_us ? "Live updates" : "Atualização contínua"; color: #8493a5; font-size: 11px; vertical-alignment: center; }
                     }
 
-                    HorizontalLayout {
+                    if root.width < 1000px: VerticalBox {
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            height: 98px;
+                            spacing: 8px;
+                            MetricPanel {
+                                horizontal-stretch: 1;
+                                title: root.language == UiLanguage.en_us ? "Total CPU" : "CPU total";
+                                value: root.cpu-value;
+                                detail: root.cpu-status;
+                                accent: #7db6ff;
+                            }
+                            MetricPanel {
+                                horizontal-stretch: 1;
+                                title: root.language == UiLanguage.en_us ? "Memory" : "Memória";
+                                value: root.memory-value;
+                                detail: root.memory-status;
+                                accent: #4fc59a;
+                            }
+                            MetricPanel {
+                                horizontal-stretch: 1;
+                                title: "Swap";
+                                value: root.swap-value;
+                                detail: root.swap-status;
+                                accent: #b58cff;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 98px;
+                            spacing: 8px;
+                            MetricPanel {
+                                horizontal-stretch: 1;
+                                title: root.language == UiLanguage.en_us ? "Processes" : "Processos";
+                                value: root.process-count;
+                                detail: root.language == UiLanguage.en_us ? "visible in this sample" : "visíveis nesta amostra";
+                                accent: #e8b75b;
+                            }
+                            MetricPanel {
+                                horizontal-stretch: 1;
+                                title: root.language == UiLanguage.en_us ? "Battery" : "Bateria";
+                                value: root.battery-value;
+                                detail: root.battery-status;
+                                accent: #e8b75b;
+                            }
+                        }
+                    }
+
+                    if root.width >= 1000px: HorizontalLayout {
                         height: 98px;
                         spacing: 10px;
                         MetricPanel {
