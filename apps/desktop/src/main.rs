@@ -1889,6 +1889,26 @@ mod tests {
                 .single_click(PointerEventButton::Left)
                 .await;
             assert_eq!(window.get_language(), UiLanguage::EnUs);
+
+            let mut english_process_tabs =
+                ElementHandle::find_by_accessible_label(&window, "Processes");
+            let english_process_tab = english_process_tabs
+                .next()
+                .expect("find the localized process tab");
+            assert_eq!(english_process_tab.accessible_item_selected(), Some(true));
+
+            let mut english_process_rows = ElementHandle::find_by_accessible_label(
+                &window,
+                "fixture-worker, PID 42, CPU 1.0%, memory 4.0 MiB",
+            );
+            let english_process_row = english_process_rows
+                .next()
+                .expect("find the localized accessible process row");
+            assert_eq!(
+                english_process_row.accessible_role(),
+                Some(i_slint_backend_testing::AccessibleRole::ListItem)
+            );
+            assert_eq!(english_process_row.accessible_item_selected(), Some(true));
             slint::quit_event_loop().expect("stop the testing event loop");
         })
         .expect("schedule the UI interaction");
