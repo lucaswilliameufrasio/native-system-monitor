@@ -47,9 +47,17 @@ pub struct VolumeMetrics {
     pub write_bytes_per_second: Option<f64>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum NetworkInterfaceKind {
+    #[default]
+    Unknown,
+    Loopback,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct NetworkInterfaceMetrics {
     pub name: String,
+    pub kind: NetworkInterfaceKind,
     pub received_bytes_per_second: Option<f64>,
     pub transmitted_bytes_per_second: Option<f64>,
 }

@@ -922,6 +922,7 @@ mod tests {
         });
         snapshot.network_interfaces.push(NetworkInterfaceMetrics {
             name: "wlan0".to_owned(),
+            kind: native_monitor_domain::NetworkInterfaceKind::Unknown,
             received_bytes_per_second: Some(3.0),
             transmitted_bytes_per_second: None,
         });

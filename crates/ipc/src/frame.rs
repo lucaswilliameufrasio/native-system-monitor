@@ -92,6 +92,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gpu_capability_matrix_round_trips_over_ipc_frame() {
+        let capabilities = vec![
+            crate::wire::Capability {
+                name: "gpu_nvidia".to_owned(),
+                status: "supported".to_owned(),
+                source: "NVML (optional runtime driver)".to_owned(),
+            },
+            crate::wire::Capability {
+                name: "gpu_amd".to_owned(),
+                status: "unsupported".to_owned(),
+                source: "no native adapter".to_owned(),
+            },
+            crate::wire::Capability {
+                name: "gpu_intel".to_owned(),
+                status: "unsupported".to_owned(),
+                source: "no native adapter".to_owned(),
+            },
+            crate::wire::Capability {
+                name: "gpu_apple_silicon".to_owned(),
+                status: "unsupported".to_owned(),
+                source: "no native adapter".to_owned(),
+            },
+        ];
+        let response = Response {
+            protocol_major: PROTOCOL_MAJOR,
+            protocol_minor: PROTOCOL_MINOR,
+            capabilities: capabilities.clone(),
+            ..Response::default()
+        };
+        let (mut sender, mut receiver) = tokio::io::duplex(512);
+
+        write_message(&mut sender, &response)
+            .await
+            .expect("write capability response");
+        let decoded: Response = read_message(&mut receiver)
+            .await
+            .expect("read capability response");
+
+        assert_eq!(decoded.protocol_minor, PROTOCOL_MINOR);
+        assert_eq!(decoded.capabilities, capabilities);
+    }
+
+    #[tokio::test]
     async fn snapshot_history_interval_round_trips_over_ipc() {
         let response = Response {
             protocol_major: PROTOCOL_MAJOR,
@@ -106,11 +149,20 @@ mod tests {
                     read_bytes_per_second: Some(512.0),
                     write_bytes_per_second: None,
                 }],
-                network_interfaces: vec![crate::wire::NetworkInterfaceMetrics {
-                    name: "eth-test".to_owned(),
-                    received_bytes_per_second: Some(1_024.0),
-                    transmitted_bytes_per_second: None,
-                }],
+                network_interfaces: vec![
+                    crate::wire::NetworkInterfaceMetrics {
+                        name: "lo".to_owned(),
+                        received_bytes_per_second: Some(1_024.0),
+                        transmitted_bytes_per_second: None,
+                        kind: crate::wire::NetworkInterfaceKind::Loopback as i32,
+                    },
+                    crate::wire::NetworkInterfaceMetrics {
+                        name: "eth-test".to_owned(),
+                        received_bytes_per_second: None,
+                        transmitted_bytes_per_second: None,
+                        kind: crate::wire::NetworkInterfaceKind::Unknown as i32,
+                    },
+                ],
                 block_devices: vec![crate::wire::BlockDeviceMetrics {
                     id: "8:0".to_owned(),
                     name: "sda".to_owned(),
@@ -169,8 +221,12 @@ mod tests {
         assert_eq!(snapshot.volumes[0].available_bytes, Some(4_000));
         assert_eq!(snapshot.volumes[0].read_bytes_per_second, Some(512.0));
         assert_eq!(snapshot.volumes[0].write_bytes_per_second, None);
-        assert_eq!(snapshot.network_interfaces.len(), 1);
-        assert_eq!(snapshot.network_interfaces[0].name, "eth-test");
+        assert_eq!(snapshot.network_interfaces.len(), 2);
+        assert_eq!(snapshot.network_interfaces[0].name, "lo");
+        assert_eq!(
+            snapshot.network_interfaces[0].kind,
+            crate::wire::NetworkInterfaceKind::Loopback as i32
+        );
         assert_eq!(
             snapshot.network_interfaces[0].received_bytes_per_second,
             Some(1_024.0)
@@ -178,6 +234,11 @@ mod tests {
         assert_eq!(
             snapshot.network_interfaces[0].transmitted_bytes_per_second,
             None
+        );
+        assert_eq!(snapshot.network_interfaces[1].name, "eth-test");
+        assert_eq!(
+            snapshot.network_interfaces[1].kind,
+            crate::wire::NetworkInterfaceKind::Unknown as i32
         );
         assert_eq!(snapshot.block_devices.len(), 1);
         assert_eq!(snapshot.block_devices[0].id, "8:0");

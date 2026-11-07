@@ -83,10 +83,16 @@ message VolumeMetrics {
   optional double write_bytes_per_second = 6;
 }
 
+enum NetworkInterfaceKind {
+  NETWORK_INTERFACE_KIND_UNKNOWN = 0;
+  NETWORK_INTERFACE_KIND_LOOPBACK = 1;
+}
+
 message NetworkInterfaceMetrics {
   string name = 1;
   optional double received_bytes_per_second = 2;
   optional double transmitted_bytes_per_second = 3;
+  NetworkInterfaceKind kind = 4;
 }
 
 message BlockDeviceMetrics {

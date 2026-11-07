@@ -3052,6 +3052,7 @@ dependencies = [
 name = "native-monitor-collectors-linux"
 version = "0.1.0"
 dependencies = [
+ "libloading",
  "native-monitor-domain",
 ]
 
@@ -3072,10 +3073,12 @@ dependencies = [
  "native-monitor-agent-lifecycle",
  "native-monitor-domain",
  "native-monitor-ipc",
+ "serde",
  "slint",
  "slint-build",
  "sys-locale",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
 ]

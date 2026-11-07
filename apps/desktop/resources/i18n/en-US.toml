@@ -1,0 +1,64 @@
+[header]
+title = "System Monitor"
+tagline = "A clear view of your computer"
+agent-active = "Agent active"
+agent-unavailable = "Agent unavailable"
+setup-startup = "Setup startup"
+retry-connection = "Retry connection"
+
+[navigation]
+section = "MONITORING"
+accessible-label = "Main navigation"
+overview = "Overview"
+processes = "Processes"
+performance = "Performance"
+storage = "Storage"
+network = "Network"
+collection-continues = "Collection continues\nwhen the window is closed"
+keyboard-shortcut = "Ctrl+1–5: switch pages"
+keyboard-shortcut-accessible = "Keyboard shortcut: Control plus 1 through 5 switches pages"
+
+[density]
+comfortable = "Comfortable"
+comfortable-accessible = "Comfortable density"
+compact = "Compact"
+compact-accessible = "Compact density"
+
+[overview]
+live-updates = "Live updates"
+total-cpu = "Total CPU"
+memory = "Memory"
+swap = "Swap"
+processes = "Processes"
+battery = "Battery"
+cpu-usage = "CPU usage"
+memory-usage = "Memory usage"
+
+[performance]
+one-minute = "1 minute"
+five-minutes = "5 minutes"
+total-cpu = "Total CPU"
+memory-used = "Memory used"
+cpu-per-core = "CPU per core"
+cpu-unavailable = "Per-core data unavailable in this sample."
+gpu-vram = "GPU and VRAM"
+
+[processes]
+singular = "{count} process visible"
+plural = "{count} processes visible"
+detail-singular = "visible in this sample"
+detail-plural = "visible in this sample"
+list-title = "Process list"
+filter-placeholder = "Filter by name or PID"
+filter-accessible-label = "Filter processes by name or PID"
+column-process = "Process"
+empty-filtered = "No processes match the filter."
+waiting-connection = "Waiting for agent connection…"
+
+[volumes]
+singular = "{count} volume"
+plural = "{count} volumes"
+
+[network-interfaces]
+singular = "{count} interface"
+plural = "{count} interfaces"

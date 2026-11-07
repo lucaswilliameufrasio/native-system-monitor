@@ -4,6 +4,7 @@ use crate::{
     wire::{
         BlockDeviceMetrics as WireBlockDeviceMetrics, Capability as WireCapability,
         CpuMetrics as WireCpuMetrics, MemoryMetrics as WireMemoryMetrics,
+        NetworkInterfaceKind as WireNetworkInterfaceKind,
         NetworkInterfaceMetrics as WireNetworkInterfaceMetrics, Operation,
         ProcessMetrics as WireProcessMetrics, Request, Response, Snapshot as WireSnapshot,
         VolumeMetrics as WireVolumeMetrics,
@@ -14,7 +15,7 @@ use interprocess::local_socket::{
     tokio::Listener as LocalSocketListener, traits::StreamCommon as _, traits::tokio::Listener as _,
 };
 use native_monitor_collector_api::Capability;
-use native_monitor_domain::SystemSnapshot;
+use native_monitor_domain::{NetworkInterfaceKind, SystemSnapshot};
 use std::io;
 use std::time::Duration;
 use tokio::sync::{Semaphore, watch};
@@ -309,6 +310,14 @@ fn handle_request(
                             name: interface.name.clone(),
                             received_bytes_per_second: interface.received_bytes_per_second,
                             transmitted_bytes_per_second: interface.transmitted_bytes_per_second,
+                            kind: match interface.kind {
+                                NetworkInterfaceKind::Unknown => {
+                                    WireNetworkInterfaceKind::Unknown as i32
+                                }
+                                NetworkInterfaceKind::Loopback => {
+                                    WireNetworkInterfaceKind::Loopback as i32
+                                }
+                            },
                         })
                         .collect(),
                     block_devices: snapshot
@@ -628,10 +637,11 @@ fn peer_is_current_user(stream: &interprocess::local_socket::tokio::Stream) -> b
 mod tests {
     use super::{MAX_PROCESS_FILTER_CHARS, MAX_PROCESSES_PER_RESPONSE, handle_request};
     use crate::{
-        PROTOCOL_MAJOR,
-        wire::{Operation, Request},
+        PROTOCOL_MAJOR, PROTOCOL_MINOR,
+        wire::{NetworkInterfaceKind as WireNetworkInterfaceKind, Operation, Request},
     };
-    use native_monitor_domain::SystemSnapshot;
+    use native_monitor_collector_api::Capability;
+    use native_monitor_domain::{NetworkInterfaceKind, NetworkInterfaceMetrics, SystemSnapshot};
 
     #[cfg(unix)]
     fn socket_test_directory(label: &str, id: u64) -> std::path::PathBuf {
@@ -718,6 +728,94 @@ mod tests {
         );
 
         assert_eq!(response.error_code, "protocol_version_mismatch");
+    }
+
+    #[test]
+    fn snapshot_serializes_network_interface_kinds() {
+        let mut source = SystemSnapshot::starting();
+        source.network_interfaces = vec![
+            NetworkInterfaceMetrics {
+                name: "lo".to_owned(),
+                kind: NetworkInterfaceKind::Loopback,
+                received_bytes_per_second: None,
+                transmitted_bytes_per_second: None,
+            },
+            NetworkInterfaceMetrics {
+                name: "enp-test".to_owned(),
+                kind: NetworkInterfaceKind::Unknown,
+                received_bytes_per_second: None,
+                transmitted_bytes_per_second: None,
+            },
+        ];
+
+        let response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                protocol_minor: PROTOCOL_MINOR,
+                operation: Operation::Snapshot as i32,
+                ..Request::default()
+            },
+            &source,
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+        let interfaces = response
+            .snapshot
+            .expect("snapshot response")
+            .network_interfaces;
+
+        assert_eq!(interfaces.len(), 2);
+        assert_eq!(
+            interfaces[0].kind,
+            WireNetworkInterfaceKind::Loopback as i32
+        );
+        assert_eq!(interfaces[1].kind, WireNetworkInterfaceKind::Unknown as i32);
+    }
+
+    #[test]
+    fn capability_response_preserves_the_gpu_backend_matrix() {
+        let capabilities = [
+            Capability {
+                name: "gpu_nvidia",
+                status: "supported",
+                source: "NVML (optional runtime driver)",
+            },
+            Capability {
+                name: "gpu_amd",
+                status: "unsupported",
+                source: "no native adapter",
+            },
+            Capability {
+                name: "gpu_intel",
+                status: "unsupported",
+                source: "no native adapter",
+            },
+            Capability {
+                name: "gpu_apple_silicon",
+                status: "unsupported",
+                source: "no native adapter",
+            },
+        ];
+
+        let response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                operation: Operation::Capabilities as i32,
+                ..Request::default()
+            },
+            &SystemSnapshot::starting(),
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &capabilities,
+        );
+
+        assert_eq!(response.capabilities.len(), capabilities.len());
+        for (actual, expected) in response.capabilities.iter().zip(capabilities) {
+            assert_eq!(actual.name, expected.name);
+            assert_eq!(actual.status, expected.status);
+            assert_eq!(actual.source, expected.source);
+        }
     }
 
     #[test]

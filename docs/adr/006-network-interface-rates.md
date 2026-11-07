@@ -1,7 +1,7 @@
 # ADR-006: taxas de rede por interface a partir de counters
 
-- **Status:** Aceito para a primeira fatia M2; classificação física/virtual pendente
-- **Data:** 2026-10-26
+- **Status:** Aceito; classificação Linux conservadora implementada, classificação física/virtual pendente
+- **Data:** 2026-10-26 (classificação conservadora adicionada em 2026-11-07)
 - **Referência:** plano mestre, seções 3.4, 6.1 e incremento M2; ADR-003.
 
 ## Contexto
@@ -20,6 +20,14 @@ normalizados pela duração monotônica entre amostras.
 - Expor o nome da interface apenas localmente; não inferir que seja física ou
   somar interfaces relacionadas. A UI/CLI apresentam as taxas por interface.
 - Preservar as taxas opcionais no domínio e no protocolo protobuf 1.3.
+- Classificar `Loopback` somente quando o flag nativo `IFF_LOOPBACK` estiver
+  presente em `/sys/class/net/<interface>/flags` no Linux. Interfaces não
+  loopback permanecem `Unknown`: este bit não comprova hardware físico, NIC
+  virtual, VPN, túnel, bridge nem relação de deduplicação.
+- Transportar `NetworkInterfaceKind` como campo protobuf aditivo no minor 1.10;
+  enum zero é `Unknown`, permitindo que clientes novos leiam agentes antigos sem
+  inventar uma classificação. Outros sistemas e valores enum não reconhecidos
+  também resultam em `Unknown`.
 
 ## Alternativas consideradas
 
@@ -35,4 +43,6 @@ normalizados pela duração monotônica entre amostras.
 Counters reiniciados ou interfaces que acabam de surgir ficam sem taxa até haver
 duas amostras válidas. Os nomes continuam locais e não são exportados. Revisar a
 fonte e a semântica em testes com carga e hardware de cada OS; implementar
-classificação/deduplicação somente com propriedades nativas verificáveis.
+classificação/deduplicação somente com propriedades nativas verificáveis. A
+primeira classificação Linux não conta interfaces físicas e não substitui
+validação de USB, NIC real, VPN/túnel ou runtime nativo em outros sistemas.

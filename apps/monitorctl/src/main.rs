@@ -1,8 +1,10 @@
 use anyhow::{Context, Result, bail};
 use native_monitor_ipc::client;
-use native_monitor_ipc::wire::Operation;
+use native_monitor_ipc::wire::{NetworkInterfaceKind, Operation};
 use std::env;
 use std::process::ExitCode;
+
+const NETWORK_INTERFACE_KIND_PROTOCOL_MINOR: u32 = 10;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -144,13 +146,14 @@ async fn run() -> Result<()> {
                 }
                 "network" => {
                     println!(
-                        "{:<28} {:>16} {:>16}",
-                        "interface", "received", "transmitted"
+                        "{:<28} {:<12} {:>16} {:>16}",
+                        "interface", "kind", "received", "transmitted"
                     );
                     for interface in snapshot.network_interfaces {
                         println!(
-                            "{:<28} {:>16} {:>16}",
+                            "{:<28} {:<12} {:>16} {:>16}",
                             interface.name,
+                            network_interface_kind_name(interface.kind, response.protocol_minor,),
                             format_bytes_per_second(interface.received_bytes_per_second),
                             format_bytes_per_second(interface.transmitted_bytes_per_second)
                         );
@@ -221,8 +224,10 @@ async fn run() -> Result<()> {
                                 .unwrap_or_else(|| "—".to_owned())
                         );
                     }
-                    if snapshot.gpus.is_empty() {
-                        println!("GPU status: {}", snapshot.gpu_status);
+                    if let Some(status) =
+                        gpu_status_for_cli(snapshot.gpus.len(), snapshot.gpu_status.as_str())
+                    {
+                        println!("GPU status: {status}");
                     }
                 }
                 "battery" => {
@@ -359,6 +364,25 @@ fn format_bytes_per_second(bytes_per_second: Option<f64>) -> String {
     }
 }
 
+fn network_interface_kind_name(kind: i32, protocol_minor: u32) -> &'static str {
+    if protocol_minor < NETWORK_INTERFACE_KIND_PROTOCOL_MINOR {
+        return "unknown";
+    }
+
+    match NetworkInterfaceKind::try_from(kind) {
+        Ok(NetworkInterfaceKind::Loopback) => "loopback",
+        Ok(NetworkInterfaceKind::Unknown) | Err(_) => "unknown",
+    }
+}
+
+fn gpu_status_for_cli(gpu_count: usize, status: &str) -> Option<&str> {
+    if gpu_count == 0 || status != "ok" {
+        return Some(status);
+    }
+
+    None
+}
+
 fn format_operations_per_second(operations_per_second: Option<f64>) -> String {
     operations_per_second
         .filter(|value| value.is_finite() && *value >= 0.0)
@@ -440,7 +464,8 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_bytes, format_bytes_per_second, parse_device_options, parse_process_identity,
+        format_bytes, format_bytes_per_second, gpu_status_for_cli, network_interface_kind_name,
+        parse_device_options, parse_process_identity,
     };
 
     #[test]
@@ -507,5 +532,24 @@ mod tests {
         assert_eq!(format_bytes(Some(1_536)), "1.5 KiB");
         assert_eq!(format_bytes_per_second(None), "—");
         assert_eq!(format_bytes_per_second(Some(1_536.0)), "1.5 KiB/s");
+    }
+
+    #[test]
+    fn network_interface_kind_uses_unknown_for_old_or_unrecognized_protocol_values() {
+        assert_eq!(network_interface_kind_name(0, 10), "unknown");
+        assert_eq!(network_interface_kind_name(1, 10), "loopback");
+        assert_eq!(network_interface_kind_name(1, 9), "unknown");
+        assert_eq!(network_interface_kind_name(99, 10), "unknown");
+    }
+
+    #[test]
+    fn gpu_status_is_printed_when_devices_are_empty_or_collection_is_degraded() {
+        assert_eq!(
+            gpu_status_for_cli(1, "temporarily_unavailable"),
+            Some("temporarily_unavailable")
+        );
+        assert_eq!(gpu_status_for_cli(2, "error"), Some("error"));
+        assert_eq!(gpu_status_for_cli(1, "ok"), None);
+        assert_eq!(gpu_status_for_cli(0, "unsupported"), Some("unsupported"));
     }
 }

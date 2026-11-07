@@ -1,0 +1,64 @@
+[header]
+title = "Monitor do Sistema"
+tagline = "Visibilidade clara do seu computador"
+agent-active = "Agente ativo"
+agent-unavailable = "Agente indisponível"
+setup-startup = "Configurar início"
+retry-connection = "Tentar conexão"
+
+[navigation]
+section = "MONITORAMENTO"
+accessible-label = "Navegação principal"
+overview = "Visão geral"
+processes = "Processos"
+performance = "Desempenho"
+storage = "Armazenamento"
+network = "Rede"
+collection-continues = "A coleta continua\ncom a janela fechada"
+keyboard-shortcut = "Ctrl+1–5: trocar páginas"
+keyboard-shortcut-accessible = "Atalho: Control mais 1 a 5 troca de página"
+
+[density]
+comfortable = "Confortável"
+comfortable-accessible = "Densidade confortável"
+compact = "Compacta"
+compact-accessible = "Densidade compacta"
+
+[overview]
+live-updates = "Atualização contínua"
+total-cpu = "CPU total"
+memory = "Memória"
+swap = "Memória swap"
+processes = "Processos"
+battery = "Bateria"
+cpu-usage = "Uso de CPU"
+memory-usage = "Uso de memória"
+
+[performance]
+one-minute = "1 minuto"
+five-minutes = "5 minutos"
+total-cpu = "CPU total"
+memory-used = "Memória usada"
+cpu-per-core = "CPU por núcleo"
+cpu-unavailable = "Dados por núcleo indisponíveis nesta amostra."
+gpu-vram = "GPU e VRAM"
+
+[processes]
+singular = "{count} processo visível"
+plural = "{count} processos visíveis"
+detail-singular = "visível nesta amostra"
+detail-plural = "visíveis nesta amostra"
+list-title = "Lista de processos"
+filter-placeholder = "Filtrar por nome ou PID"
+filter-accessible-label = "Filtrar processos por nome ou PID"
+column-process = "Processo"
+empty-filtered = "Nenhum processo corresponde ao filtro."
+waiting-connection = "Aguardando conexão com o agente…"
+
+[volumes]
+singular = "{count} volume"
+plural = "{count} volumes"
+
+[network-interfaces]
+singular = "{count} interface"
+plural = "{count} interfaces"

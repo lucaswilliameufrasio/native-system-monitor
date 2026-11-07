@@ -12,7 +12,9 @@ native-monitor-domain = { path = "../../crates/domain" }
 native-monitor-agent-lifecycle = { path = "../../crates/agent-lifecycle" }
 native-monitor-ipc = { path = "../../crates/ipc" }
 slint.workspace = true
+serde.workspace = true
 sys-locale.workspace = true
+toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

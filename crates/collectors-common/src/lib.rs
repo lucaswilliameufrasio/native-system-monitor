@@ -1,6 +1,8 @@
 use native_monitor_collector_api::{Capability, CollectorError, SystemCollector};
 #[cfg(target_os = "linux")]
 use native_monitor_domain::BlockDeviceMetrics;
+#[cfg(not(target_os = "linux"))]
+use native_monitor_domain::NetworkInterfaceKind;
 use native_monitor_domain::{
     CpuMetrics, MemoryMetrics, MetricStatus, NetworkInterfaceMetrics, ProcessIdentity,
     ProcessMetrics, SystemSnapshot,
@@ -30,6 +32,8 @@ pub struct SysinfoCollector {
         HashMap<String, (native_monitor_collectors_linux::DiskCounters, Instant)>,
     #[cfg(target_os = "linux")]
     nvidia: native_monitor_collectors_nvidia::NvidiaCollector,
+    #[cfg(target_os = "linux")]
+    intel: native_monitor_collectors_linux::IntelCollector,
     cpu_has_baseline: bool,
 }
 
@@ -45,6 +49,8 @@ impl SysinfoCollector {
             previous_block_device_counters: HashMap::new(),
             #[cfg(target_os = "linux")]
             nvidia: native_monitor_collectors_nvidia::NvidiaCollector::new(),
+            #[cfg(target_os = "linux")]
+            intel: native_monitor_collectors_linux::IntelCollector::new(),
             cpu_has_baseline: false,
         }
     }
@@ -128,6 +134,11 @@ impl SystemCollector for SysinfoCollector {
             .networks
             .iter()
             .map(|(name, network)| {
+                #[cfg(target_os = "linux")]
+                let kind = native_monitor_collectors_linux::classify_network_interface(name);
+                #[cfg(not(target_os = "linux"))]
+                let kind = NetworkInterfaceKind::Unknown;
+
                 let current = NetworkCounters {
                     received_bytes: network.total_received(),
                     transmitted_bytes: network.total_transmitted(),
@@ -137,6 +148,7 @@ impl SystemCollector for SysinfoCollector {
                 let elapsed = previous.map(|counter| sampled_at.duration_since(counter.sampled_at));
                 let metrics = NetworkInterfaceMetrics {
                     name: name.clone(),
+                    kind,
                     received_bytes_per_second: previous.and_then(|counter| {
                         counter_rate(current.received_bytes, counter.received_bytes, elapsed?)
                     }),
@@ -158,7 +170,16 @@ impl SystemCollector for SysinfoCollector {
         #[cfg(not(target_os = "linux"))]
         let (block_devices, block_device_io_status) = (Vec::new(), MetricStatus::Unsupported);
         #[cfg(target_os = "linux")]
-        let (gpus, gpu_status) = self.nvidia.collect();
+        let (gpus, gpu_status) = {
+            let nvidia = self.nvidia.collect();
+            let amd = match native_monitor_collectors_linux::read_system_amd_gpus() {
+                Ok(gpus) if gpus.is_empty() => (gpus, MetricStatus::Unsupported),
+                Ok(gpus) => (gpus, MetricStatus::Ok),
+                Err(_) => (Vec::new(), MetricStatus::Error),
+            };
+            let intel = self.intel.collect();
+            merge_gpu_results(merge_gpu_results(nvidia, amd), intel)
+        };
         #[cfg(not(target_os = "linux"))]
         let (gpus, gpu_status) = (Vec::new(), MetricStatus::Unsupported);
         #[cfg(target_os = "linux")]
@@ -265,6 +286,21 @@ impl SystemCollector for SysinfoCollector {
                 #[cfg(target_os = "linux")]
                 source: "NVML (optional runtime driver)",
                 #[cfg(not(target_os = "linux"))]
+                source: "no native adapter",
+            },
+            Capability {
+                name: "gpu_amd",
+                status: "unsupported",
+                source: "/sys/class/drm amdgpu; hardware validation pending",
+            },
+            Capability {
+                name: "gpu_intel",
+                status: "unsupported",
+                source: "Level Zero Sysman (optional runtime); hardware validation pending",
+            },
+            Capability {
+                name: "gpu_apple_silicon",
+                status: "unsupported",
                 source: "no native adapter",
             },
             Capability {
@@ -435,12 +471,169 @@ fn compare_cpu_usage(left: Option<f32>, right: Option<f32>) -> std::cmp::Orderin
     }
 }
 
+fn merge_gpu_results(
+    (mut first_gpus, first_status): (Vec<native_monitor_domain::GpuMetrics>, MetricStatus),
+    (mut second_gpus, second_status): (Vec<native_monitor_domain::GpuMetrics>, MetricStatus),
+) -> (Vec<native_monitor_domain::GpuMetrics>, MetricStatus) {
+    first_gpus.append(&mut second_gpus);
+    let status = if first_status == MetricStatus::Error || second_status == MetricStatus::Error {
+        MetricStatus::Error
+    } else if first_status == MetricStatus::TemporarilyUnavailable
+        || second_status == MetricStatus::TemporarilyUnavailable
+    {
+        MetricStatus::TemporarilyUnavailable
+    } else if first_status == MetricStatus::WarmingUp || second_status == MetricStatus::WarmingUp {
+        MetricStatus::WarmingUp
+    } else if first_status == MetricStatus::Ok || second_status == MetricStatus::Ok {
+        MetricStatus::Ok
+    } else {
+        MetricStatus::Unsupported
+    };
+
+    (first_gpus, status)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::counter_rate;
+    use super::{SysinfoCollector, counter_rate, merge_gpu_results};
     #[cfg(target_os = "linux")]
     use super::{average_operation_latency, counter_rate_scaled};
+    use native_monitor_collector_api::SystemCollector;
+    use native_monitor_domain::MetricStatus;
     use std::time::Duration;
+
+    #[test]
+    fn gpu_capability_matrix_lists_each_backend_without_overstating_support() {
+        let collector = SysinfoCollector::new();
+        let capabilities = collector.capabilities();
+        let expected_gpu_backends = ["gpu_nvidia", "gpu_amd", "gpu_intel", "gpu_apple_silicon"];
+
+        for backend in expected_gpu_backends {
+            assert_eq!(
+                capabilities
+                    .iter()
+                    .filter(|capability| capability.name == backend)
+                    .count(),
+                1,
+                "capability matrix must list {backend} exactly once"
+            );
+        }
+
+        for capability in capabilities
+            .iter()
+            .filter(|capability| capability.name.starts_with("gpu_"))
+        {
+            match capability.name {
+                "gpu_nvidia" => {
+                    #[cfg(target_os = "linux")]
+                    {
+                        let expected_status = if collector.nvidia.is_available() {
+                            "supported"
+                        } else {
+                            "unsupported"
+                        };
+                        assert_eq!(capability.status, expected_status);
+                        assert_eq!(capability.source, "NVML (optional runtime driver)");
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        assert_eq!(capability.status, "unsupported");
+                        assert_eq!(capability.source, "no native adapter");
+                    }
+                }
+                "gpu_amd" => {
+                    assert_eq!(capability.status, "unsupported");
+                    assert_eq!(
+                        capability.source,
+                        "/sys/class/drm amdgpu; hardware validation pending"
+                    );
+                }
+                "gpu_intel" => {
+                    assert_eq!(capability.status, "unsupported");
+                    assert_eq!(
+                        capability.source,
+                        "Level Zero Sysman (optional runtime); hardware validation pending"
+                    );
+                }
+                "gpu_apple_silicon" => {
+                    assert_eq!(capability.status, "unsupported");
+                    assert_eq!(capability.source, "no native adapter");
+                }
+                other => panic!("unexpected GPU capability {other}"),
+            }
+        }
+    }
+
+    #[test]
+    fn gpu_sources_preserve_metrics_and_degraded_statuses() {
+        let nvidia_gpu = native_monitor_domain::GpuMetrics {
+            id: "nvidia-id".to_owned(),
+            name: "NVIDIA GPU".to_owned(),
+            utilization_percent: Some(10.0),
+            memory_used_bytes: None,
+            memory_total_bytes: None,
+            temperature_celsius: None,
+            graphics_clock_mhz: None,
+            memory_clock_mhz: None,
+            power_watts: None,
+        };
+        let amd_gpu = native_monitor_domain::GpuMetrics {
+            id: "0000:03:00.0".to_owned(),
+            name: "AMD GPU".to_owned(),
+            utilization_percent: Some(20.0),
+            memory_used_bytes: None,
+            memory_total_bytes: None,
+            temperature_celsius: None,
+            graphics_clock_mhz: None,
+            memory_clock_mhz: None,
+            power_watts: None,
+        };
+        let intel_gpu = native_monitor_domain::GpuMetrics {
+            id: "intel-01000000000000000000000000000000".to_owned(),
+            name: "Intel GPU".to_owned(),
+            utilization_percent: Some(30.0),
+            memory_used_bytes: Some(2_000),
+            memory_total_bytes: Some(8_000),
+            temperature_celsius: Some(61),
+            graphics_clock_mhz: Some(1_500),
+            memory_clock_mhz: None,
+            power_watts: None,
+        };
+
+        let (gpus, status) = merge_gpu_results(
+            merge_gpu_results(
+                (vec![nvidia_gpu], MetricStatus::TemporarilyUnavailable),
+                (vec![amd_gpu], MetricStatus::Ok),
+            ),
+            (vec![intel_gpu], MetricStatus::Ok),
+        );
+
+        assert_eq!(gpus.len(), 3);
+        assert_eq!(gpus[0].id, "nvidia-id");
+        assert_eq!(gpus[1].id, "0000:03:00.0");
+        assert_eq!(gpus[2].id, "intel-01000000000000000000000000000000");
+        assert_eq!(gpus[2].memory_total_bytes, Some(8_000));
+        assert_eq!(status, MetricStatus::TemporarilyUnavailable);
+
+        let (_, status) = merge_gpu_results(
+            (Vec::new(), MetricStatus::Unsupported),
+            (
+                vec![native_monitor_domain::GpuMetrics {
+                    id: "0000:03:00.0".to_owned(),
+                    name: "AMD GPU".to_owned(),
+                    utilization_percent: None,
+                    memory_used_bytes: None,
+                    memory_total_bytes: None,
+                    temperature_celsius: None,
+                    graphics_clock_mhz: None,
+                    memory_clock_mhz: None,
+                    power_watts: None,
+                }],
+                MetricStatus::Ok,
+            ),
+        );
+        assert_eq!(status, MetricStatus::Ok);
+    }
 
     #[test]
     fn network_counter_rate_handles_deltas_resets_and_zero_elapsed_time() {

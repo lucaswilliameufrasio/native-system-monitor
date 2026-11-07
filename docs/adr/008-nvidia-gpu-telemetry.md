@@ -19,8 +19,18 @@ desenvolvimento tem NVML disponível, mas CI e outros hosts podem não ter drive
   vira zero. UUID é a identidade estável do dispositivo.
 - Expor uso, VRAM, temperatura, clocks e potência quando NVML suportar. Consultas
   são somente leitura; não mudar clocks, fan, power limit ou estado da GPU.
+- Preservar dispositivos válidos quando outro dispositivo falhar e manter o
+  estado degradado visível na GUI e CLI junto às métricas parciais; a existência
+  de alguma linha válida não transforma a amostra inteira em sucesso.
 - O backend é Linux/NVIDIA nesta fatia. Não inferir suporte AMD, Intel ou Apple;
   cada backend precisa de adapter e validação próprios.
+- Publicar capability separada por família planejada (`gpu_nvidia`, `gpu_amd`,
+  `gpu_intel`, `gpu_apple_silicon`). Famílias sem adapter aparecem explicitamente
+  como `unsupported` com fonte `no native adapter`; AMD tem adapter Linux
+  experimental, mas continua `unsupported` até homologação em hardware real
+  ([ADR-013](013-linux-amdgpu-sysfs.md)); Intel Linux tem adapter experimental,
+  mas continua `unsupported` até homologação real ([ADR-014](014-linux-intel-gpu-telemetry.md)).
+  Capability informa prontidão validada, não a ausência de hardware no equipamento.
 
 ## Alternativas
 

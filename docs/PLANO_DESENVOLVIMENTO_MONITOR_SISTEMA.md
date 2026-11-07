@@ -355,7 +355,7 @@ Os intervalos são defaults propostos, sujeitos a benchmarking. Cada coletor dec
 | AMD Radeon Windows | ADLX (via driver) | métrica e suporte por modelo; validar a licença do SDK e a forma de distribuição. |
 | AMD Linux | `amdgpu` sysfs; AMD SMI em hardware suportado | AMD SMI não equivale a suporte universal a todas as Radeon. |
 | Intel Windows | IGCL + performance counters Windows | recursos dependem de driver/dispositivo, x64 inicial. |
-| Intel Linux | DRM/sysfs; IGCL/Level Zero quando viáveis | engine accounting e power variáveis; não prometer Watts. |
+| Intel Linux | Adapter experimental Level Zero Sysman opcional (ADR-014); DRM `fdinfo` somente por cliente, não agregado device-wide | engine/memória/power variam por driver e permissão; validar unidade de clock de memória e escopo antes de expor; não prometer Watts sem domínio GPU explícito. |
 | Apple Silicon | Metal/IOKit e instrumentos auditados | memória unificada, lacunas de watts/utilização e APIs não públicas. |
 
 **Controle de probe:** falha de um backend GPU não impede CPU/RAM nem derruba o agente. Carregamento de bibliotecas por `dlopen`/`LoadLibrary` e assinatura/licença auditadas. Não carregar binários de caminhos controlados por usuários não confiáveis.
@@ -548,17 +548,17 @@ aceite que ainda não foram executados.
 
 | Incremento | Estado | Evidência / pendência principal |
 |---|---|---|
-| M0 — Fundamentos executáveis e validação Slint | Parcial | Workspace, GUI/agent/CLI, IPC, ADRs e CI Linux/macOS/Windows existem. Spikes de acessibilidade e renderer alternativo, screenshots por OS e validação nativa completa continuam pendentes. |
-| M1 — Processos, CPU e memória | Parcial | Coleta, IPC, busca/ordenação, gráficos, ciclo de vida por usuário, identidade PID + início e seleção de detalhes implementados; testes headless e CI multiplataforma passam. O teste release de 10k processos mediu query + protobuf p95 de 0,97 ms (máx. 1,46 ms) neste host; isso não mede latência/renderização da UI. Faltam E2E/visuais e budget de interação nativa por OS. |
-| M2 — Desempenho, disco e rede | Em andamento | Publicado em `786314d` (volumes + taxas RX/TX), `2719eb7`/`b60444b`/`0c73bb4` (I/O físico Linux e correções multiplataforma), `5fa373f` (I/O por filesystem/volume) e `3725531` (latência média Linux por deltas de `/proc/diskstats`, IPC, GUI/CLI); CI `40289499003` passou em Linux, macOS e Windows. I/O/IOPS/busy-time/latência Linux seguem separados dos volumes. `scripts/validate-linux-block-io.sh` compara taxas do agente com amostras independentes e timestampadas de `/sys/class/block/*/stat`, em carga opt-in limitada a 256 MiB, com arquivo temporário limpo por trap. Smoke local de 16 MiB em Btrfs (`/dev/sda1`) observou uma amostra CLI de ~16,2 MiB/s e delta sysfs de 33.032 setores (~16,1 MiB) no dispositivo `sda` durante a janela próxima; spot-check de direção/ordem de grandeza, não taxa precisamente alinhada nem benchmark de capacidade (há I/O concorrente e camadas/filesystems). Um segundo ensaio de 8 MiB confirmou execução e limpeza. `scripts/validate-linux-network.py` gera somente tráfego loopback limitado e compara taxas do agente com `/proc/net/dev`; smoke local transferiu 4.194.304 B, observou deltas independentes RX/TX de 4.206.083 B e snapshot de loopback de 3,8 MiB/s, compatível em ordem de grandeza durante janela ~1 s. CI `40413996153` passou em Linux/macOS/Windows. Isso não é benchmark nem valida outras interfaces/OS. Hotplug real, validação semântica por OS e adaptadores nativos macOS/Windows seguem pendentes. |
-| M3 — GPUs, VRAM e sensores | Parcial | Publicado em `6bd63bb`, CI `40304637425` passou em Linux/macOS/Windows. Primeira fatia Linux/NVIDIA implementada com NVML dinâmico opcional; UUID, modelo, utilização, VRAM, temperatura, clocks e potência opcional percorrem domínio, IPC, GUI e CLI (`devices --type gpu`). O collector detecta driver/hardware ausente sem derrubar o agente e mantém campos sem suporte ausentes. Teste de collector e smoke agente→IPC→CLI foram executados neste host com NVIDIA GeForce MX230; validação visual e outros modelos pendentes. AMD, Intel, Windows e Apple Silicon seguem sem adapters. |
+| M0 — Fundamentos executáveis e validação Slint | Parcial | Workspace, GUI/agent/CLI, IPC, ADRs e CI Linux/macOS/Windows existem. QA isolado em Ubuntu 24.04/Xvfb/Slint software cobriu startup, Storage e navegação/filtro. Um teste local de 1.200 amostras confere downsampling para até 72 pontos e preservação de picos, sem medir renderização/p95; spikes de acessibilidade e renderer alternativo, screenshots por OS e validação nativa completa continuam pendentes. |
+| M1 — Processos, CPU e memória | Parcial | Coleta, IPC, busca/ordenação, gráficos, ciclo de vida por usuário, identidade PID + início e seleção de detalhes implementados; testes headless e CI multiplataforma passam. O teste release de 10k processos mediu query + protobuf p95 de 0,97 ms (máx. 1,46 ms) nesta medição local; isso não mede latência/renderização da UI. No smoke da VM, filtro sintético mostrou 1 resultado, 0 sem correspondências e restaurou os 180 processos visíveis ao limpar. Faltam budgets de interação e validação nativa por OS. |
+| M2 — Desempenho, disco e rede | Em andamento | Publicado em `786314d` (volumes + taxas RX/TX), `2719eb7`/`b60444b`/`0c73bb4` (I/O físico Linux e correções multiplataforma), `5fa373f` (I/O por filesystem/volume) e `3725531` (latência média Linux por deltas de `/proc/diskstats`, IPC, GUI/CLI); CI `40289499003` passou em Linux, macOS e Windows. I/O/IOPS/busy-time/latência Linux seguem separados dos volumes. `scripts/validate-linux-block-io.sh` compara taxas do agente com amostras independentes e timestampadas de `/sys/class/block/*/stat`, em carga opt-in limitada a 256 MiB, com arquivo temporário limpo por trap. Ensaios locais limitados de escrita em Btrfs compararam taxas do agente com deltas independentes de sysfs e confirmaram tendência/unidade em ordem de grandeza; não são taxas precisamente alinhadas nem benchmark de capacidade, devido a I/O concorrente e camadas/filesystems. `scripts/validate-linux-network.py` gera somente tráfego loopback limitado e compara taxas do agente com `/proc/net/dev`; smoke local limitado comparou o tráfego loopback do agente com `/proc/net/dev` e confirmou tendência/unidade em ordem de grandeza, sem constituir benchmark nem validar outras interfaces ou sistemas. CI `40413996153` passou em Linux/macOS/Windows. Isso não é benchmark nem valida outras interfaces/OS. Hotplug real, validação semântica por OS e adaptadores nativos macOS/Windows seguem pendentes. |
+| M3 — GPUs, VRAM e sensores | Parcial | Publicado em `6bd63bb`, CI `40304637425` passou em Linux/macOS/Windows. Primeira fatia Linux/NVIDIA implementada com NVML dinâmico opcional; UUID, modelo, utilização, VRAM, temperatura, clocks e potência opcional percorrem domínio, IPC, GUI e CLI (`devices --type gpu`). O collector detecta driver/hardware ausente sem derrubar o agente e mantém campos sem suporte ausentes. Teste de collector e smoke agente→IPC→CLI com hardware NVIDIA real foram registrados em evidência anterior. Revisão local 2026-11-07 fez GUI e CLI preservar o estado não-`ok` quando há métricas de GPU válidas junto de falha parcial; integração Slint verifica a mensagem na página Performance e teste CLI verifica a política de impressão. A primeira tentativa de localizar o elemento GUI usou Overview e não é reprodução válida pré-correção. Fronteira interna fake do NVML verifica enumeração multi-GPU/IDs distintos, falha global, falhas parciais com preservação, zero dispositivos e opcionais ausentes. A capability matrix lista NVIDIA, AMD, Intel e Apple Silicon separadamente; só NVIDIA Linux pode aparecer `supported` quando NVML enumera hardware. AMD Linux tem adapter experimental por sysfs `amdgpu`, integrado ao snapshot, mas continua `unsupported` até homologação real. [ADR-014](adr/014-linux-intel-gpu-telemetry.md) define Level Zero Sysman opcional e rejeita DRM `fdinfo` para agregados device-wide; adapter Intel Linux experimental implementa descoberta e métricas best-effort, mas `gpu_intel` continua `unsupported` até homologação em hardware real. Apple Silicon e outros runtimes também seguem sem adapters. Fixtures não substituem homologação em hardware AMD/Intel real. |
 | M4 — Saúde do disco, energia e bateria | Parcial | Primeira fatia Linux somente leitura de bateria em `/sys/class/power_supply`: estado, capacidade, energia, potência, temperatura e ciclos opcionais percorrem domínio, IPC, GUI e CLI (`devices --type battery`). Fixtures cobrem unidades, ausência e dados inválidos; smoke agente→IPC→CLI enumerou uma bateria real, mantendo temperatura não fornecida como ausente. SMART/NVMe, adapters macOS/Windows, alertas/histerese e validação em mais hardware seguem pendentes. |
 | M5 — Prometheus, VictoriaMetrics e histórico avançado | Parcial | Pull OpenMetrics 1.0 em `crates/exporters`: `/metrics` loopback opt-in, snapshot existente, aliases sem dados privados, campos ausentes omitidos, allowlist tipada e métricas de saúde. Scrapes concorrentes (4), cabeçalho (4 KiB), timeout (2 s) e séries (128 dispositivos, 512 CPUs) limitados; CI `40318138924` passou em Linux/macOS/Windows para a versão anterior do exporter. Remote Write v1 codifica protobuf+Snappy e envia snapshots via cliente HTTPS sem redirects; opt-in, HTTP só em loopback, intervalos e fila validados, fila FIFO em memória bounded, backoff/jitter e Retry-After delta-seconds limitado; erros permanentes 4xx descartam lote. `/metrics` expõe enabled, fila (lotes/bytes), sucessos, retries, rejeições, descartes e timestamp do último sucesso; contadores usam OpenMetrics `counter` e os valores são voláteis. Gate local completo para `253cae9` passou (fmt, Clippy, testes workspace, build e laboratório/config); CI `40384814605` passou. A fatia de métricas de fila/status em `78afbe0` passou o gate local completo e CI `40385844421` passou; atualização documental `372f399` também passou no CI `40386053918`. Laboratórios isolados confirmaram `native_monitor_cpu_utilization_ratio` via API de séries VictoriaMetrics v1.154.0 e via API de consulta Prometheus v3.15.1 com `--web.enable-remote-write-receiver`; container/rede próprios removidos. O novo laboratório Prometheus em `2dc655a` passou CI `40389053378` em Linux/macOS/Windows, além de passar localmente. Permanecem credential stores/rotação/revogação, spool durável e destinos autenticados. ADR-010 e ADR-011. |
 | M6 — Gestão avançada de processos | Em andamento | Primeira fatia somente de leitura definida em ADR-012: operação IPC minor 9 consulta uma árvore num snapshot por identidade PID + hora de início; BFS mantém raiz primeiro e limite configurado, stale identity retorna `process_not_found`, truncamento é explícito, e CLI `process-tree PID:START_UNIX_SECONDS` imprime a hierarquia. A GUI consulta o mesmo RPC apenas com processo selecionado e exibe árvore indentada, erro/truncamento e atualização a cada 5 s; sem seleção, não há RPC de árvore. Teste desktop cobre profundidade/ordem BFS; testes IPC cobrem descendentes, PID reutilizado e truncamento. Gate local completo e CI `40411000960` passaram em Linux, macOS e Windows. Smoke agente→IPC→CLI real passou para PID 1, incluindo identidade exata e árvore limitada. Nenhum sinal, elevação de privilégio ou exposição de command line/caminho é incluído; encerramento, detalhes sensíveis, auditoria e helper permanecem pendentes. |
-| M7 — Design, acessibilidade e estabilidade V1 | Em andamento | Primeira fatia de semântica Slint adiciona tab-list para navegação, tabs com estado selecionado, ações acessíveis em navegação/faixas/ordenação/linhas de processos, label explícito no filtro, role list-item e anúncio polite do status do agente. Atalhos `Ctrl+1` a `Ctrl+5` navegam pelas cinco páginas via `FocusScope` e são anunciados visualmente na sidebar; integração despacha eventos de teclado do backend e verifica `Ctrl+5`/`Ctrl+2`. Alternância de densidade confortável/compacta em pt-BR/en-US está disponível no cabeçalho e é apenas de sessão: modo compacto reduz margens, espaçamento, altura da navegação e das linhas/detalhes da lista de processos; teste de integração clica nos dois modos e verifica a transição. Gráficos de CPU e memória agora expõem papel de imagem e resumo acessível localizado com número de amostras, mínimo, máximo e valor mais recente; NaN/infinito são omitidos e estado sem amostras é descrito. Testes unitários cobrem resumo/valores não finitos; a integração verifica papel/label do gráfico e os papéis, rótulos e estados selecionados da navegação, campo de filtro, cabeçalho de ordenação e linha de processo pelo backend Slint. Fatias recentes localizam estado vazio e rótulos de acessibilidade da lista de processos, descrições de ordenação e nomes IOPS, corrigem contagens singular/plural de volumes/interfaces/processos e testam rótulos de histórico pt-BR/en-US e singular/plural de processos. Contraste medido no texto lateral pequeno: `#718197`/`#171e27` era 4,23:1; substituído por `#8292a5`/`#171e27` em 5,28:1. i18n parcial pt-BR/en-US em `f9f21cf`: detecção inicial por localidade do sistema, fallback pt-BR, seletor manual só durante a sessão e páginas principais/estados dinâmicos comuns localizados. Gate local completo com 25 testes desktop e CI `40441238528` passaram em Linux, macOS e Windows; regressão de semântica de abas, filtro e ordenação passou no gate e CI `40442957228` em Linux/macOS/Windows; teste da linha de processo verifica role, seletividade e atualização da seleção, passou no gate local e CI `40444000507` em Linux/macOS/Windows. A integração também verifica que aba e label acessível da linha acompanham a troca pt-BR→en-US; teste direcionado passou e a nova alteração aguarda gate/CI. Ainda faltam catálogo externalizado/pluralização geral, revisão linguística, inspeção integral de mensagens/estados, teste visual por OS, validação manual de foco/leitor de tela em backends nativos, auditoria integral de contraste ou soak. |
+| M7 — Design, acessibilidade e estabilidade V1 | Em andamento | Primeira fatia de semântica Slint adiciona tab-list para navegação, tabs com estado selecionado, ações acessíveis em navegação/faixas/ordenação/linhas de processos, label explícito no filtro, role list-item e anúncio polite do status do agente. Atalhos `Ctrl+1` a `Ctrl+5` navegam pelas cinco páginas via `FocusScope` e são anunciados visualmente na sidebar; integração despacha eventos de teclado do backend e verifica `Ctrl+5`/`Ctrl+2`. Alternância de densidade confortável/compacta em pt-BR/en-US está disponível no cabeçalho e é apenas de sessão: modo compacto reduz margens, espaçamento, altura da navegação e das linhas/detalhes da lista de processos; teste de integração clica nos dois modos e verifica a transição. Gráficos de CPU e memória agora expõem papel de imagem e resumo acessível localizado com número de amostras, mínimo, máximo e valor mais recente; NaN/infinito são omitidos e estado sem amostras é descrito. Testes unitários cobrem resumo/valores não finitos; a integração verifica papel/label do gráfico e os papéis, rótulos e estados selecionados da navegação, campo de filtro, cabeçalho de ordenação e linha de processo pelo backend Slint. Fatias recentes localizam estado vazio e rótulos de acessibilidade da lista de processos, descrições de ordenação e nomes IOPS, corrigem contagens singular/plural de volumes/interfaces/processos e testam rótulos de histórico pt-BR/en-US e singular/plural de processos. Contraste medido no texto lateral pequeno: `#718197`/`#171e27` era 4,23:1; substituído por `#8292a5`/`#171e27` em 5,28:1. i18n parcial pt-BR/en-US em `f9f21cf`: detecção inicial por localidade do sistema, fallback pt-BR, seletor manual só durante a sessão e páginas principais/estados dinâmicos comuns localizados. Gate local completo com 25 testes desktop e CI `40441238528` passaram em Linux, macOS e Windows; regressão de semântica de abas, filtro e ordenação passou no gate e CI `40442957228` em Linux/macOS/Windows; teste da linha de processo verifica role, seletividade e atualização da seleção, passou no gate local e CI `40444000507` em Linux/macOS/Windows. A integração também verifica que aba e label acessível da linha acompanham a troca pt-BR→en-US; teste direcionado e gate local completo passaram; CI nova não foi executada. Ainda faltam catálogo externalizado/pluralização geral, revisão linguística, inspeção integral de mensagens/estados, teste visual por OS, validação manual de foco/leitor de tela em backends nativos, auditoria integral de contraste ou soak. |
 | M8 — Release público e manutenção | Em andamento | `CONTRIBUTING.md` registra toolchain e gate exatos do CI, layout, ensaio de performance opt-in, laboratórios locais e limites de segurança. MIT autorizado e `Cargo.toml` atualizado em `f9f21cf`; `LICENSE` e metadados de copyright aguardam confirmação do titular e ano. Também falta definir canal privado de divulgação (nenhum `SECURITY.md` nem recurso GitHub de divulgação configurado foi verificado). Empacotamento, identidade de assinatura/notarização, SBOM verificável, checksums/proveniência e homologação de instalação/upgrade/desinstalação por OS continuam pendentes. |
 
-**Evidência visual Linux (2026-10-29):** inspeção do app conectado em workspace privado KWin, Linux x86_64, nos tamanhos 960 × 640 e 1200 × 760. Foram corrigidos título/status truncados, tamanho inicial fixo que impedia redimensionamento real e cartões da visão geral que não cabiam em largura reduzida. A tela de processos e métricas reais também foi observada nos dois tamanhos; capturas ficaram apenas no armazenamento temporário de QA porque incluem nomes/PIDs do host. Isto não homologa Wayland/X11, outros sistemas, HiDPI, temas, leitor de tela ou toda a jornada de entrada: o backend Wayland do `winit` encerrou com panic ao receber dados de ponteiro e a interação de filtro via ferramentas de input não foi comprovada. O teste headless existente cobre seleção, navegação, densidade e idioma, mas não substitui essa validação visual/interativa nativa.
+**Evidência visual Linux (2026-10-29):** inspeção do app conectado em workspace privado KWin, Linux x86_64, nos tamanhos 960 × 640 e 1200 × 760. Foram corrigidos título/status truncados, tamanho inicial fixo que impedia redimensionamento real e cartões da visão geral que não cabiam em largura reduzida. A tela de processos e métricas reais também foi observada nos dois tamanhos; capturas ficaram apenas no armazenamento temporário de QA porque incluem nomes/PIDs do host. Isto não homologa Wayland/X11, outros sistemas, HiDPI, temas, leitor de tela ou toda a jornada de entrada: o backend Wayland do `winit` encerrou com panic ao receber dados de ponteiro e a interação de filtro não foi comprovada naquela sessão. A interação foi exercitada depois em uma VM isolada, descrita abaixo; isso não substitui a validação nativa. O teste headless existente cobre seleção, navegação, densidade e idioma, mas não substitui essa validação visual/interativa.
 
 #### Fatia M2 — continuidade das taxas de volumes (2026-10-29)
 
@@ -620,9 +620,9 @@ desktop com backend de teste Slint. Build completo passou. Essa evidência remov
 o bloqueio do gate local, mas não é CI novo, QA visual ou homologação nativa.
 
 **Smoke real Linux de montagem/remoção/remontagem:** duas execuções independentes
-de um ensaio local (`/tmp/opencode/nsm-volume-mount-smoke.py`, artefato temporário
-não versionado), cada uma com dois ciclos. `unshare --user --map-root-user --mount`
-isolou os mounts; `/tmp` privado em tmpfs isolou o IPC e a configuração do agente.
+de um ensaio temporário não versionado, cada uma com dois ciclos.
+`unshare --user --map-root-user --mount` isolou os mounts; um tmpfs privado
+isolou o IPC e a configuração do agente.
 Um bind mount de diretório existente foi criado/removido dentro do namespace,
 sem montar dispositivos nem alterar mounts do host. Os binários reais
 `target/debug/native-monitor-agent` e `target/debug/native-monitorctl` comprovaram:
@@ -635,40 +635,342 @@ desativada por default. O ensaio só imprimiu resultados de asserções, sem nom
 ou métricas privadas. Isto verifica a reenumeração de mounts pelo caminho real,
 não conexão USB, hotplug físico, aferição de throughput ou GUI.
 
-**QA inicial em VM privada (2026-11-07):** Ubuntu Server 24.04 cloud image, QEMU
-10.0.13 com KVM; armazenamento da VM em `/mnt/storage/nsm-qa-vm` (fora do repo).
-Sessão X11 privada em Xvfb 1440 × 900, Openbox e renderer Slint software.
-Os binários locais recém-compilados foram copiados à VM; agente e GUI iniciaram,
-`monitorctl status` reportou `running`, e a captura inicial foi inspecionada. A
-janela visível era 1120 × 720, mostrando Overview, CPU/memória, agente ativo e
-idioma inglês. Evidência local não versionada. Isto verifica somente startup e
-primeiro frame; filtro e interação de GUI não foram testados. O primeiro QMP
-`device_add` falhou porque `pcie.0` não aceita hotplug; a VM foi desligada e
-reiniciada com uma root-port dedicada, mas o hotplug de disco não foi repetido
-nem verificado. Portanto não há ainda evidência de storage GUI ou hotplug virtual.
+**QA interativo Linux em VM privada (2026-11-07):** Ubuntu Server 24.04, QEMU/KVM,
+root-port PCIe e disco virtio descartável; arquivos da VM, logs e capturas
+permaneceram em armazenamento isolado fora do repositório. Xvfb
+privado 1440 × 900, Openbox, Slint software, locale en-US; janela de 1120 × 720.
+O binário desktop corrigido foi compilado deste checkout (`9c2e7fb` mais a
+alteração não commitada descrita a seguir), iniciado junto ao agente; `monitorctl
+status` reportou `running` e as capturas foram inspecionadas.
 
-**Limites da evidência:** testes determinísticos com dados sintéticos executados
-em Linux x86_64; smoke de bind-mount real em namespace Linux exercitou CLI, não
-conexão USB nem I/O físico. Não houve ensaio de taxa contra fonte independente
-nesta fatia, validação nativa macOS/Windows ou homologação. O CI verde de
-`3882c7e` é anterior e não verifica este checkout. Nenhuma captura ou dado privado
-do host foi adicionado ao repositório. A identidade local não detecta troca
-entre ciclos que reutilize mount, filesystem e nome com counters não regressivos
-(ADR-005). M2 permanece em andamento. Próximo passo: concluir o smoke da VM,
-reiniciada com root-port, anexando/desanexando o disco virtual descartável e
-verificando CLI + GUI na ausência/retomada de taxas. Isto será hotplug virtual,
-não validação USB física. Depois, fonte independente para taxas e adaptadores /
-validação nativa macOS e Windows ainda são necessários. O QA da VM é isolado e
-software-renderizado; não declara homologação do host, outros renderers, HiDPI,
-Wayland, GPU real nem leitores de tela.
+- Storage refletiu a presença do disco virtual descartável. Uma gravação
+  sintética limitada foi observada de forma concordante na CLI e na GUI; após a
+  carga, ambas voltaram a indicar inatividade.
+- A remoção do ponto de montagem e o hot-unplug virtual foram refletidos pela CLI
+  e pela GUI, sem mount stale. Após reconectar e montar novamente, as taxas
+  aqueceram antes de voltar ao estado de inatividade.
+- Processo sintético `nsm-filter-v2`: a tela mostrou 1 resultado; busca sem
+  correspondência mostrou 0 e estado vazio localizado; limpar o filtro restaurou
+  180 processos. O processo de fixture foi encerrado e verificado ausente.
+- Capturas representativas inspecionadas: `fixed-storage-focused.png`,
+  `storage-write-24.png`, `storage-write-idle.png`,
+  `fixed-storage-unmounted.png`, `fixed-storage-replugged.png`,
+  `fixed-filter-match.png`, `fixed-filter-empty.png`,
+  `fixed-filter-cleared.png` e `fixed-network-view.png`; todas permanecem fora
+  do repo.
 
-**Sequência de execução:** fechar lacunas nativas de M0/M1 quando houver
-ambiente/plataforma disponível; concluir a jornada M2 (I/O físico, validação de
-rede e disco com fonte independente e hotplug) antes de declarar o incremento
-pronto. Depois avançar M3
-→ M8 em fatias completas e testáveis, sem marcar como homologadas capacidades
-que dependem de hardware ou de uma sessão desktop ausente. Atualizar esta tabela
-a cada marco verificado.
+**Checagens complementares M2 (2026-11-07):** no guest, rodei o script existente
+`scripts/validate-linux-block-io.sh` com `--size-mib 8` no filesystem ext4 do disco
+virtio hotplugado. `lsblk` identificou somente um dispositivo inteiro de bloco,
+sem partição filha; `devices --type block` mostrou uma única entrada. O snapshot do agente e
+os counters sysfs independentes indicaram tendência/unidade compatível em uma
+amostra limitada; a janela não é alinhada com precisão, portanto não constitui
+benchmark nem taxa exata. O script removeu o arquivo descartável. Após hot-unplug,
+a CLI deixou de listar o dispositivo após a atualização do snapshot; no replug,
+ele reapareceu aquecendo e retornou à inatividade após a segunda amostra.
+
+A página Network e `devices --type network` exibiram loopback e adaptador
+virtual como interfaces distintas; a classificação conservadora não os trata como
+contagem de hardware físico e não infere tipo físico/virtual por nome ou driver.
+
+**Permissões M2 — evidência parcial:** agente e CLI consultaram `/proc/diskstats`
+e counters sysfs como usuário sem privilégios elevados; os arquivos consultados
+eram legíveis sem `sudo` no caminho do coletor. Pelo código,
+falha ao ler `/proc/diskstats` resulta em `MetricStatus::Error`; falha ao ler a
+topologia sysfs exclui a entrada afetada. Nenhuma negação real foi simulada, e a
+exclusão por sysfs não traz motivo por dispositivo na CLI. A matriz de negação por
+OS permanece pendente, sem tentativa de elevar privilégios.
+
+**Classificação local de interfaces (2026-11-07):** domínio e coleta agora
+transportam `NetworkInterfaceKind`; o adaptador Linux marca `Loopback` somente
+quando `/sys/class/net/<nome>/flags` contém `IFF_LOOPBACK`. Flags ausentes,
+inválidas, enum desconhecido, protocolos anteriores ao minor 10 e todas as
+interfaces sem evidência positiva resultam em `Unknown`. Não são inferidos
+`Physical`, `Virtual`, VPN/túnel, bridge nem deduplicação. O campo protobuf
+aditivo usa valor zero `Unknown`; a GUI mostra coluna `Tipo` localizada e linha
+acessível; `monitorctl devices --type network` mostra `kind` (`loopback` ou
+`unknown`). Testes cobrem flags sysfs válidas/ausentes/inválidas, mapeamento do
+snapshot para protobuf, round-trip do frame, fallback de versão/enum, labels e
+renderização acessível da linha.
+
+**Smoke integrado Linux após a classificação:** no guest Ubuntu 24.04, o agente
+respondeu `IPC protocol: 1.10`; a CLI distinguiu loopback de adaptador
+virtual, coincidindo com a classificação derivada das flags nativas. A integração
+Slint encontrou as linhas acessíveis com os rótulos `Loopback` e `Desconhecido`; o
+desktop atualizado permaneceu ativo sem panic. Binários da VM foram comparados
+por SHA-256 aos builds locais. Esta VM Linux x86_64 virtualizada não valida NIC
+física ou outro sistema operacional.
+
+**Fatia de auditoria M3 GPU (2026-11-07):** a GUI agora mantém o status de coleta
+GPU não-`ok` visível ao lado de dispositivos válidos tanto na GUI quanto em
+`monitorctl devices --type gpu`, em vez de apagá-lo quando a lista não está vazia;
+`ok` continua sem mensagem redundante e o status da GUI é exposto como label
+acessível. O teste CLI cobre estado degradado com dispositivo válido e mantém a
+saída para lista vazia. A primeira tentativa de localizar o elemento apontou para
+Overview e não é evidência válida de reprodução pré-correção. O teste foi
+corrigido para a página Performance e agora verifica o estado visível; não se
+afirma uma reprodução válida antes da mudança visual. A coleta NVML foi
+separada internamente em `NvidiaDeviceSource` e `collect_devices`, sem mudar a API
+pública nem o carregamento dinâmico. Fakes determinísticos confirmam 2 IDs
+distintos, preservação de uma GPU válida com outra falhando, `Error` para falha de
+enumeração, falha de todos os dispositivos como `TemporarilyUnavailable`,
+`Unsupported` para zero GPUs e ausência (não zero inventado) de métricas opcionais.
+O registro de capabilities lista `gpu_nvidia`, `gpu_amd`, `gpu_intel` e
+`gpu_apple_silicon`; famílias sem adapter dizem explicitamente `unsupported` /
+`no native adapter`. NVIDIA acompanha a disponibilidade NVML; AMD e Intel têm
+adapters Linux experimentais, mas permanecem `unsupported` até homologação real.
+Teste verifica esses estados e fontes. Teste IPC confirma preservação de
+nome/status/fonte de cada backend no handler e round-trip protobuf por frame; a
+CLI imprime essa lista sem filtrar famílias não homologadas. Isso melhora
+descoberta e verifica lógica/semântica local, mas não equivale a falha induzida em
+hardware/driver real nem homologa outro modelo/fabricante.
+
+**Adapter experimental AMD Linux (2026-11-07):** ADR-013 define leitura somente
+de `/sys/class/drm/cardN/device` quando PCI vendor é `0x1002` e o link de driver
+é `amdgpu`. A identidade usa PCI BDF; os campos consultados são `gpu_busy_percent`
+(%), `mem_info_vram_used/total` (bytes), hwmon `temp1_input` (millicelsius) e
+`freq1_input/freq2_input` (Hz). Produto é opcional, cada métrica inválida ou
+ausente fica ausente, e o adapter não escreve sysfs. Potência permanece ausente:
+`power1_average` não distingue com segurança a GPU do SoC/CPU em APUs. Duas GPUs
+AMD são integradas à lista de métricas quando descobertas, sem mudar
+`gpu_amd=unsupported`; a capability registra que falta validação de hardware.
+Fixtures verificam vendor/driver, descoberta multi-GPU/BDF, campos opcionais,
+valor fora de faixa, conversões e ausência de potência mesmo com fixture
+`power1_average`. O VRAM reportado em APU pode ser carveout UMA; GTT/memória
+compartilhada não é incluída. Não houve homologação em hardware/firmware AMD real; portanto, os fixtures
+não alteram o estado `unsupported` da capability.
+
+**Adapter experimental Intel Linux (2026-11-07):** ADR-014 seleciona Level Zero
+Sysman opcional; o adapter agora carrega `libze_loader.so.1` dinamicamente (sem
+link obrigatório), filtra dispositivos GPU Intel por vendor/type e usa UUID
+preferencialmente, com BDF como fallback. Fakes cobrem descoberta com múltiplos
+dispositivos, filtragem de outro vendor/NPU, falha parcial, métricas/counters e
+runtime ausente. Utilização usa engine `ALL` em snapshots sucessivos; VRAM só é
+calculada de um único módulo raiz `DEVICE` usando `physicalSize` e `free`; sensor
+GPU e `actual` do domínio gráfico são best-effort. Clock de memória não é exposto;
+potência só é candidata pela extensão explícita de domínio GPU. A capability
+continua `unsupported` até homologação real em hardware Intel. A especificação
+confirma engine `ALL` com atividade calculada por
+deltas de `activeTime/timestamp`, memória `DEVICE` separada de `SYSTEM`, clocks
+GPU em MHz e sensores de temperatura em °C. Potência só é candidata quando o
+domínio é explicitamente `GPU`; contadores de energia são µJ com timestamp µs.
+Clock de memória requer validação de unidade no runtime/driver, e `size` do
+Sysman memory state é deprecated desde v1.15. DRM `fdinfo` i915/xe é por cliente
+(engine em ns e memória por região), portanto não se agrega como utilização ou
+VRAM total sem risco de omissões/dupla contagem. Capability Intel segue
+`unsupported`/`hardware validation pending` até homologação real.
+
+**Gate local do adapter Intel (2026-11-07):** com Rust 1.98.1 documentado pelo
+projeto, passaram `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (125 aprovados, 0 falhas, 1
+benchmark manual ignorado) e `cargo build --workspace`; `git diff --check` também
+passou. Um probe C compilado contra os headers oficiais Level Zero 1.20.41
+comparou tamanhos e offsets-chave ABI com o teste Rust, e os fakes exercitaram
+descoberta e semântica sem GPU. Isto não verifica o loader instalado nem substitui
+execução em runtime/hardware: o ambiente de validação não disponibilizou runtime
+nem hardware Intel para ensaio. Nenhuma CI nova foi executada; `gpu_intel`
+continua `unsupported`.
+
+**Auditoria M0–M8 e fatia local M7 (2026-11-07):** a tabela acima continua sendo
+o status de aceite; nenhum marco foi promovido a concluído. Há trabalho local
+testável em M0/M1/M7 (renderer/acessibilidade no ambiente Linux, orçamento de
+interação ainda sem limite acordado e cobertura de localização), mas screenshots
+e comportamento nativo de macOS/Windows/Linux exigem os respectivos ambientes.
+M2–M4 ainda combinam adapters/fixtures implementáveis com ensaios de hardware,
+permissão ou OS externo; M3 não pode habilitar Intel/AMD sem homologação real.
+M5 exige decisão de custódia/rotação de credenciais e spool durável; M6 exige
+política explícita de sinais, permissões e helper. M7 também depende de soak,
+update/reboot/sleep e ensaios de acessibilidade/renderer; M8 aguarda confirmação
+do titular/ano da licença, canal privado de divulgação, identidade de assinatura
+e validação de instaladores por OS. A fatia M7 corrige “Swap” para “Memória swap”
+em pt-BR nos dois layouts responsivos e verifica ambos os idiomas pelo seletor
+no teste de interação Slint; `MetricPanel` expõe o próprio título como rótulo
+acessível. Isto fecha apenas essa string, não o catálogo geral nem M7.
+
+**M0 — gráfico com 1.200 amostras (2026-11-07):** o teste local
+`five_minute_chart_history_handles_1200_samples_with_bounded_peak_preserving_output`
+passa por `select_history` com 1.200 amostras determinísticas a cada 250 ms,
+confere janela de cinco minutos, saída limitada a 72 pontos e preservação de picos
+em buckets distintos. Isso verifica preparo/downsampling da série, não renderização
+Slint, responsividade, ausência de freeze ou o target provisório de p95 da seção 13;
+renderer alternativo e validação de acessibilidade por OS continuam pendentes.
+M0 permanece parcial. Gate local em Rust 1.98.1 passou: fmt, Clippy, build,
+`git diff --check` e `SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace`
+(**141 aprovados, 0 falhas, 1 teste manual ignorado**); nenhuma CI nova foi
+executada.
+
+**Regressão de localização M7 (2026-11-07):** no estado de memória disponível,
+o cartão combinava uma descrição portuguesa (`utilizado`) com status en-US.
+`memory_status_description` agora aplica a localização também quando há valores
+válidos; teste de regressão verifica a frase completa em pt-BR e en-US e preserva
+os estados sem valor. O catálogo geral de strings e os demais critérios de M7
+continuam pendentes.
+
+**Separadores decimais M7 (2026-11-07):** `Locale::format_decimal` centraliza
+vírgula em pt-BR e ponto em en-US nos formatadores numéricos da GUI: CPU/núcleos,
+GPU e potência, bateria, processos, memória/VRAM, taxas de bytes, IOPS, latência,
+ocupação e resumos acessíveis dos gráficos. Unidades, precisão e arredondamento
+foram preservados; ausência continua `—`. Testes cobrem as duas localidades nos
+formatadores e na linha de processo.
+
+**Agrupamento de milhares M7 (2026-11-07):** `Locale::format_integer` agrupa
+milhares com ponto em pt-BR e vírgula em en-US; `format_decimal` aplica o mesmo
+agrupamento somente à parte inteira, sem alterar precisão nem arredondamento.
+Contagens de processos/amostras, idades da amostra/processo e temperatura/clocks
+de GPU usam os formatadores localizados. Testes verificam valores grandes nas
+duas localidades, negativos, arredondamento, precisão e ausência (`—`); PID, PPID,
+de strings gerais continua pendente; a fatia de catálogos para contadores foi
+registrada abaixo.
+
+**Unidades SI/IEC M7 (2026-11-07):** a página Armazenamento agora permite escolher
+SI (base 1000) ou IEC (base 1024), com IEC mantido como padrão compatível. A
+preferência persiste em `ui-settings.toml` no diretório de configuração do usuário
+de cada OS; ausência usa o padrão, configuração inválida é ignorada com aviso e
+falha de gravação não impede o uso durante a sessão. A opção formata capacidade,
+taxas, RAM/swap, VRAM e memória por processo sem alterar IPC/coleta. Testes cobrem
+conversões nas duas localidades, rótulos e unidades, seleção/radio acessível,
+persistência por leitura após gravação, fallback, validação e caminhos de
+configuração Linux/macOS/Windows. O mapeamento de diretórios dos três OS é teste
+unitário; runtime/build nativo macOS/Windows continua dependendo de CI/hosts desses
+sistemas. Gate local em Rust 1.98.1 passou: fmt, Clippy, build, `git diff --check`
+e `SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**134 aprovados, 0 falhas,
+1 teste manual ignorado**); nenhuma CI nova foi executada. Decisão registrada em
+[ADR-015](adr/015-ui-byte-unit-preference.md).
+
+**Catálogos de contadores M7 (2026-11-07):** mensagens de contagem de processos,
+volumes e interfaces de rede foram extraídas para `apps/desktop/resources/i18n/`
+em TOML pt-BR/en-US e ligadas às propriedades da GUI. A seleção singular/plural
+e a formatação numérica continuam em código, mantendo os recursos apenas como
+texto. Testes carregam/validam ambos os catálogos e verificam zero, singular,
+plural e 1.234/1,234 em cada tipo de contador; detalhes da contagem de processos
+na visão geral também usam os recursos. O restante do catálogo geral da GUI
+permanece pendente. O ensaio de interação Slint também confirmou que os textos
+pt-BR chegam aos rótulos acessíveis das páginas Processos, Armazenamento e Rede.
+Gate local em Rust 1.98.1 passou: fmt, Clippy, build, `git diff --check` e
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**135 aprovados, 0 falhas,
+1 teste manual ignorado**); nenhuma CI nova foi executada.
+
+**Inventário e Visão geral i18n M7 (2026-11-07):** a varredura das expressões
+inline restantes agrupou textos por cabeçalho, densidade, navegação e páginas
+Visão geral, Processos, Desempenho, Armazenamento e Rede. Nesta fatia, o indicador
+de atualização contínua, os cinco títulos dos painéis de métricas e os dois
+títulos dos gráficos da Visão geral foram movidos aos catálogos TOML pt-BR/en-US.
+Testes de catálogo cobrem os oito rótulos nas duas localidades; a integração
+Slint verifica o indicador e os cinco painéis nas duas línguas após alternar a
+localidade. As outras strings das páginas continuam pendentes. Gate local em
+Rust 1.98.1 passou: fmt, Clippy, build, `git diff --check` e
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**139 aprovados, 0 falhas,
+1 teste manual ignorado**); nenhuma CI nova foi executada.
+
+**Lista e filtro de Processos i18n M7 (2026-11-07):** inventário da página
+identificou a seção da lista, o campo de filtro (placeholder e nome acessível),
+o cabeçalho ordenável de nome e os estados sem resultados/aguardando conexão.
+Esses seis textos foram externalizados para TOML pt-BR/en-US; estados do painel
+de seleção/árvore e o cabeçalho de memória com unidade dinâmica continuam fora
+desta fatia. Testes verificam cada recurso nas duas localidades e a integração
+Slint confere rótulos, placeholder e ambos os estados vazios após trocar o idioma.
+Gate local em Rust 1.98.1 passou: fmt, Clippy, build, `git diff --check` e
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**140 aprovados, 0 falhas,
+1 teste manual ignorado**); nenhuma CI nova foi executada.
+
+**Inventário e cabeçalho i18n M7 (2026-11-07):** inspeção das expressões de
+idioma em `main.slint` e dos ramos de `Locale` em Rust agrupou as strings ainda
+embutidas em cabeçalho/estado do agente, navegação/densidade, visão geral,
+processos, desempenho, armazenamento e rede. Nesta fatia, título, descrição,
+estado ativo/indisponível do agente e ações de configurar início/tentar conexão
+foram movidos para os catálogos TOML pt-BR/en-US e ligados também ao título da
+janela. Teste unitário verifica os seis recursos nas duas localidades; a
+integração Slint alterna pt-BR/en-US e confirma título e ação acessíveis em cada
+idioma. Rótulos dentro das páginas, densidade e demais estados dinâmicos continuam
+embutidos naquele ponto e ficaram para fatias próprias.
+
+**Navegação lateral i18n M7 (2026-11-07):** seção, nome acessível do tab-list,
+cinco destinos, aviso de coleta em segundo plano e rótulos visível/acessível dos
+atalhos `Ctrl+1–5` foram movidos para TOML pt-BR/en-US. Teste unitário valida os
+recursos nas duas localidades; a integração Slint confere os cinco tabs, papel e
+nome da navegação e rótulo acessível do atalho após alternar os idiomas. Densidade
+e os títulos/estados dentro das páginas ficaram para a fatia seguinte. Gate local em Rust
+1.98.1 passou: fmt, Clippy, build, `git diff --check` e
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**137 aprovados, 0 falhas,
+1 teste manual ignorado**); nenhuma CI nova foi executada.
+
+**Densidade e títulos de páginas i18n M7 (2026-11-07):** rótulos visíveis e
+acessíveis dos controles confortável/compacta foram movidos aos catálogos TOML
+pt-BR/en-US. Os cabeçalhos das cinco páginas usam os mesmos recursos localizados
+dos destinos correspondentes da navegação, sem duplicar traduções. Testes de
+catálogo verificam as quatro formas de densidade nas duas localidades; a
+integração Slint troca o idioma, confere os rótulos acessíveis dos controles e
+verifica o título ativo de Overview, Processes, Performance, Storage e Network em
+pt-BR/en-US. Outras strings e estados internos das páginas continuam pendentes.
+Gate local em Rust 1.98.1 passou: fmt, Clippy, build, `git diff --check` e
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**138 aprovados, 0 falhas,
+1 teste manual ignorado**); nenhuma CI nova foi executada.
+
+**Página Desempenho i18n M7 (2026-11-07):** sete textos estáticos — intervalos
+de 1/5 minutos, títulos dos gráficos de CPU/memória, título e estado sem dados
+por núcleo e título da seção GPU/VRAM — foram externalizados para TOML pt-BR e
+en-US. O teste de catálogo verifica todos os valores nos dois idiomas; a
+integração Slint alterna a localidade e confirma os rótulos acessíveis dos
+intervalos, o estado vazio de CPU por núcleo e as seções de CPU e GPU/VRAM. Não
+cobre renderização visual ou acessibilidade nativa por OS; o texto compartilhado
+“agora” dos gráficos, status dinâmicos e outras strings das páginas seguem
+pendentes. Gate local em Rust 1.98.1: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**142 aprovados, 0 falhas,
+1 teste manual ignorado**), `cargo build --workspace` e `git diff --check`
+passaram. Nenhuma CI nova foi executada; M7 permanece em andamento.
+
+**Bloqueios externos de M2 (separados do QA virtual):**
+
+- **USB físico — bloqueado:** requer mídia removível descartável conectada a um
+  host de teste autorizado. O `virtio-blk` QMP não substitui esse ensaio.
+- **macOS Apple Silicon, Windows 11 x64 e Linux ARM64 — bloqueados para runtime:**
+  requerem máquinas/sessões nativas; CI de compilação não prova enumeração,
+  semântica de I/O, hotplug ou comportamento visual nesses sistemas.
+
+**Regressão de atualização da GUI encontrada e corrigida nesta QA:** após o
+histórico completar a janela, a localização do rótulo `−5 min` panica ao tentar
+cortar a string UTF-8 pelo byte 1. O panic encerrava o worker IPC da janela e
+congelava todos os modelos, inclusive Storage, embora agente e CLI continuassem
+atuais. `localize_history_label` agora remove o prefixo Unicode com
+`strip_prefix('−')`; o teste `negative_history_labels_are_localized_without_panicking`
+falhou antes da correção com o mesmo panic e passou depois. Na GUI corrigida, o
+ensaio de escrita atualizou taxas/capacidade, a remoção/reconexão refletiu-se na
+tela e o log não registrou novo panic.
+
+**Gate local após a correção UTF-8 (2026-11-07):** passaram `cargo fmt --all --
+--check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**94 aprovados, 0 falhas,
+1 benchmark manual ignorado**) e `cargo build --workspace`.
+
+**Gate local após a classificação (2026-11-07):** passaram novamente
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**100 aprovados, 0 falhas,
+1 benchmark manual ignorado**) e `cargo build --workspace`. Nenhum CI novo foi
+executado para estas alterações locais.
+
+**Gate local após a auditoria M3 GPU e adapter AMD experimental (2026-11-07):** passaram
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**114 aprovados, 0 falhas,
+1 benchmark manual ignorado**) e `cargo build --workspace`. A suíte de GUI foi
+mantida em uma única inicialização do backend Slint por processo; nenhuma CI nova
+foi executada. A validação física NVIDIA registrada anteriormente é a única evidência de GPU real; esta fatia não acrescentou homologação AMD ou Intel.
+
+**Limites da evidência:** este é hotplug virtual Linux, não USB físico. Software
+rendering em Xvfb não homologa GPU, Wayland, HiDPI, leitores de tela, outras
+distribuições nem macOS/Windows. Não é benchmark nem ensaio de capacidade. A
+validação nativa de adapters e hotplug físico continuam pendentes; a CI verde
+anterior não cobre esta alteração local. Nenhuma captura ou dado privado do host
+foi adicionado ao repositório. A identidade local ainda não detecta troca entre
+ciclos que reutilize mount, filesystem e nome com counters não regressivos
+(ADR-005). M2 permanece em andamento.
+
+**Próxima sequência:** concluir validação nativa/USB quando houver dispositivos e
+ambientes macOS/Windows; depois avançar M3 → M8 em fatias completas e testáveis.
+Não marcar como homologadas capacidades dependentes de hardware, titularidade ou
+decisões de release ainda não confirmadas. Atualizar esta tabela a cada marco
+verificado.
 
 ### M0 — Fundamentos executáveis e validação Slint
 

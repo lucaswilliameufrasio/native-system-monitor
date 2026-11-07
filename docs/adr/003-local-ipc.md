@@ -76,6 +76,13 @@ No minor 1.5, cada volume pode acrescentar taxas de leitura/escrita fornecidas
 pelo adaptador de filesystem. Esses campos não convertem volume em dispositivo
 físico e são independentes dos counters físicos Linux.
 
+No minor 1.10, `NetworkInterfaceMetrics.kind` acrescenta um enum aditivo com
+`UNKNOWN = 0` e `LOOPBACK = 1`. Clientes novos aceitam `UNKNOWN` se conectados a
+agente anterior ao minor 10 ou se receberem um valor futuro não reconhecido;
+clientes antigos ignoram o campo. O minor do agente permanece a fonte para saber
+se a classificação foi fornecida, e a classe não autoriza inferir hardware
+físico.
+
 O benchmark sintético M1 mede filtragem/ordenação de 10.000 processos e
 serialização protobuf da resposta limitada. Essa medição não substitui a medição
 end-to-end da interação e renderização da GUI.
