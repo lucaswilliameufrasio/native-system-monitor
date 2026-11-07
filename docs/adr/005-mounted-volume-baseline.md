@@ -22,6 +22,12 @@ uniformes.
   atribuir I/O físico, latência, temperatura ou saúde a partir desses dados.
 - Preservar capacidade desconhecida como ausente no domínio, protobuf, GUI e CLI;
   não converter indisponibilidade em zero.
+- Para continuidade de I/O, guardar counters cumulativos e instante monotônico
+  por entrada montada (mount, filesystem e nome do dispositivo, sem conversão
+  lossy na chave). Primeira observação, reaparecimento após ausência observada,
+  troca de filesystem/dispositivo, regressão de counter ou intervalo inválido
+  mantêm a taxa correspondente ausente; a amostra atual estabelece a próxima
+  baseline. Descartar entradas não enumeradas no ciclo atual.
 - Acrescentar o campo protobuf no minor 1.3; clientes antigos ignoram a lista e
   clientes novos distinguem agente anterior de lista vazia.
 
@@ -43,3 +49,18 @@ ciclo de coleta, sujeito à validação de cada OS. Taxas de volume não substit
 I/O físico; M2 ainda depende de adaptadores nativos e ensaios independentes por
 OS. Rever a escolha do baseline se testes reais mostrarem omissões, bloqueios ou
 custo excessivo de sondagem.
+
+## Refinamento de continuidade (2026-10-29)
+
+A implementação usava deltas de `DiskUsage` e um único instante global, o que
+não distinguia o primeiro refresh de um volume surgido após a inicialização.
+O tracker por entrada usa `total_read_bytes`/`total_written_bytes` para detectar
+também regressões dos counters antes de calcular bytes/s. Trata-se de correção
+do contrato de ausência, sem mudança de schema ou nova identidade física.
+Fonte: [sysinfo 0.39.6 — DiskUsage](https://docs.rs/sysinfo/0.39.6/sysinfo/struct.DiskUsage.html).
+
+Fixtures cobrem continuidade, adição, remoção, reaparecimento, troca observável,
+resets e intervalos inválidos. Não detectamos uma substituição inteiramente entre
+dois ciclos que reutilize mount, filesystem e nome com counters não regressivos;
+isso exige identidade nativa futura. A chave não é exportada nem logada. Hotplug
+físico e semântica nativa macOS/Windows continuam sem homologação nesta fatia.

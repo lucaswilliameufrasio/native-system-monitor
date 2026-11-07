@@ -3,11 +3,14 @@ use native_monitor_collector_api::{Capability, CollectorError, SystemCollector};
 use native_monitor_domain::BlockDeviceMetrics;
 use native_monitor_domain::{
     CpuMetrics, MemoryMetrics, MetricStatus, NetworkInterfaceMetrics, ProcessIdentity,
-    ProcessMetrics, SystemSnapshot, VolumeMetrics,
+    ProcessMetrics, SystemSnapshot,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::{DiskRefreshKind, Disks, Networks, ProcessesToUpdate, System};
+
+mod volume_io;
+use volume_io::{VolumeIdentity, VolumeIoTracker, VolumeSample};
 
 #[derive(Clone, Copy)]
 struct NetworkCounters {
@@ -21,7 +24,7 @@ pub struct SysinfoCollector {
     disks: Disks,
     networks: Networks,
     previous_network_counters: HashMap<String, NetworkCounters>,
-    previous_disk_sample_at: Option<Instant>,
+    volume_io: VolumeIoTracker,
     #[cfg(target_os = "linux")]
     previous_block_device_counters:
         HashMap<String, (native_monitor_collectors_linux::DiskCounters, Instant)>,
@@ -37,7 +40,7 @@ impl SysinfoCollector {
             disks: Disks::new(),
             networks: Networks::new(),
             previous_network_counters: HashMap::new(),
-            previous_disk_sample_at: None,
+            volume_io: VolumeIoTracker::default(),
             #[cfg(target_os = "linux")]
             previous_block_device_counters: HashMap::new(),
             #[cfg(target_os = "linux")]
@@ -104,26 +107,21 @@ impl SystemCollector for SysinfoCollector {
                 memory_bytes: process.memory(),
             })
             .collect::<Vec<_>>();
-        let disk_elapsed = self
-            .previous_disk_sample_at
-            .map(|previous| disk_sampled_at.duration_since(previous));
-        let volumes = self
-            .disks
-            .list()
-            .iter()
-            .map(|disk| {
-                let usage = disk.usage();
-                VolumeMetrics {
-                    mount_point: disk.mount_point().to_string_lossy().into_owned(),
-                    file_system: disk.file_system().to_string_lossy().into_owned(),
-                    total_bytes: (disk.total_space() > 0).then_some(disk.total_space()),
-                    available_bytes: (disk.total_space() > 0).then_some(disk.available_space()),
-                    read_bytes_per_second: interval_rate(usage.read_bytes, disk_elapsed),
-                    write_bytes_per_second: interval_rate(usage.written_bytes, disk_elapsed),
-                }
-            })
-            .collect();
-        self.previous_disk_sample_at = Some(disk_sampled_at);
+        let volume_samples = self.disks.list().iter().map(|disk| {
+            let usage = disk.usage();
+            VolumeSample {
+                identity: VolumeIdentity {
+                    mount_point: disk.mount_point().to_owned(),
+                    file_system: disk.file_system().to_owned(),
+                    device_name: disk.name().to_owned(),
+                },
+                total_bytes: disk.total_space(),
+                available_bytes: disk.available_space(),
+                read_bytes: usage.total_read_bytes,
+                written_bytes: usage.total_written_bytes,
+            }
+        });
+        let volumes = self.volume_io.collect(volume_samples, disk_sampled_at);
         let sampled_at = Instant::now();
         let mut current_network_counters = HashMap::new();
         let network_interfaces = self
@@ -418,15 +416,6 @@ fn counter_rate(current: u64, previous: u64, elapsed: Duration) -> Option<f64> {
     Some(current.checked_sub(previous)? as f64 / elapsed_seconds)
 }
 
-fn interval_rate(bytes: u64, elapsed: Option<Duration>) -> Option<f64> {
-    let elapsed_seconds = elapsed?.as_secs_f64();
-    if elapsed_seconds <= 0.0 {
-        return None;
-    }
-
-    Some(bytes as f64 / elapsed_seconds)
-}
-
 #[cfg(target_os = "linux")]
 fn counter_rate_scaled(current: u64, previous: u64, elapsed: Duration, scale: f64) -> Option<f64> {
     let elapsed_seconds = elapsed.as_secs_f64();
@@ -448,9 +437,9 @@ fn compare_cpu_usage(left: Option<f32>, right: Option<f32>) -> std::cmp::Orderin
 
 #[cfg(test)]
 mod tests {
+    use super::counter_rate;
     #[cfg(target_os = "linux")]
     use super::{average_operation_latency, counter_rate_scaled};
-    use super::{counter_rate, interval_rate};
     use std::time::Duration;
 
     #[test]
@@ -461,16 +450,6 @@ mod tests {
         );
         assert_eq!(counter_rate(10, 20, Duration::from_secs(1)), None);
         assert_eq!(counter_rate(10, 0, Duration::ZERO), None);
-    }
-
-    #[test]
-    fn volume_io_rate_preserves_missing_baselines_and_invalid_intervals() {
-        assert_eq!(interval_rate(1_000, None), None);
-        assert_eq!(interval_rate(1_000, Some(Duration::ZERO)), None);
-        assert_eq!(
-            interval_rate(1_000, Some(Duration::from_secs(2))),
-            Some(500.0)
-        );
     }
 
     #[cfg(target_os = "linux")]

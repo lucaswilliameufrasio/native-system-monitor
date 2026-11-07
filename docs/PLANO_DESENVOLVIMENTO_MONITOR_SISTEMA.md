@@ -542,7 +542,7 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 
 ### Acompanhamento de implementação
 
-**Atualizado em 2026-10-27.** Estados abaixo refletem evidências presentes no
+**Atualizado em 2026-11-07.** Estados abaixo refletem evidências presentes no
 repositório; CI verde não substitui ensaio visual, hardware real ou critérios de
 aceite que ainda não foram executados.
 
@@ -559,6 +559,108 @@ aceite que ainda não foram executados.
 | M8 — Release público e manutenção | Em andamento | `CONTRIBUTING.md` registra toolchain e gate exatos do CI, layout, ensaio de performance opt-in, laboratórios locais e limites de segurança. MIT autorizado e `Cargo.toml` atualizado em `f9f21cf`; `LICENSE` e metadados de copyright aguardam confirmação do titular e ano. Também falta definir canal privado de divulgação (nenhum `SECURITY.md` nem recurso GitHub de divulgação configurado foi verificado). Empacotamento, identidade de assinatura/notarização, SBOM verificável, checksums/proveniência e homologação de instalação/upgrade/desinstalação por OS continuam pendentes. |
 
 **Evidência visual Linux (2026-10-29):** inspeção do app conectado em workspace privado KWin, Linux x86_64, nos tamanhos 960 × 640 e 1200 × 760. Foram corrigidos título/status truncados, tamanho inicial fixo que impedia redimensionamento real e cartões da visão geral que não cabiam em largura reduzida. A tela de processos e métricas reais também foi observada nos dois tamanhos; capturas ficaram apenas no armazenamento temporário de QA porque incluem nomes/PIDs do host. Isto não homologa Wayland/X11, outros sistemas, HiDPI, temas, leitor de tela ou toda a jornada de entrada: o backend Wayland do `winit` encerrou com panic ao receber dados de ponteiro e a interação de filtro via ferramentas de input não foi comprovada. O teste headless existente cobre seleção, navegação, densidade e idioma, mas não substitui essa validação visual/interativa nativa.
+
+#### Fatia M2 — continuidade das taxas de volumes (2026-10-29)
+
+Lacuna tratada: o relógio global de I/O permitia calcular taxas para um volume
+recém-enumerado, sem duas observações desse volume. O coletor comum agora usa
+counters cumulativos e tempo monotônico por entrada montada, conforme ADR-005.
+Não altera schema IPC, capacidades nem a distinção volume/dispositivo físico;
+as taxas opcionais seguem pelo caminho existente agente → IPC → GUI/CLI.
+
+| Critério observável | Implementação e evidência automatizada local |
+|---|---|
+| Volume novo/reaparecido não apresenta taxa até a segunda observação contínua; remoção elimina entrada e baseline. | `VolumeIoTracker`, teste `hotplug_preserves_continuous_rates_and_warms_new_volumes`: fixture com adição, remoção, reaparecimento e enumeração vazia. |
+| Volumes contínuos usam deltas cumulativos em bytes/s e preservam capacidade; inatividade válida pode ser zero. | Mesmo teste: 1.000 B em 2 s = 500 B/s, capacidade preservada e delta zero explícito. |
+| Troca observável de dispositivo/filesystem no mount invalida a baseline; capacidade desconhecida continua ausente. | `replacement_device_or_filesystem_at_same_mount_starts_a_new_baseline`. |
+| Reset de leitura/escrita e intervalo nulo/invertido mantêm a taxa afetada ausente; amostra atual permite nova baseline. | `counter_resets_and_invalid_intervals_remain_absent_then_recover`: resets independentes e recuperação da leitura. |
+
+**Verificado:** `cargo test -p native-monitor-collectors-common` passou, 6 testes
+(3 novos de continuidade, substituindo o teste escalar de taxas de volume).
+`cargo fmt --all -- --check` passou. Como verificação complementar, passaram:
+
+```sh
+cargo clippy --workspace --exclude native-monitor-desktop --all-targets -- -D warnings
+SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace --exclude native-monitor-desktop
+cargo build --workspace --exclude native-monitor-desktop
+```
+
+A suíte sem GUI teve 68 testes aprovados e 1 ignorado (benchmark manual de
+processos, não aplicável à mudança). Isso inclui o round-trip IPC existente que
+preserva taxa de volume ausente; não é E2E de hotplug.
+
+**Bloqueio inicial do gate completo:** os comandos documentados
+`cargo clippy --workspace --all-targets -- -D warnings` e
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` falharam no build de
+`yeslogic-fontconfig-sys`: `pkg-config` não estava instalado. Os metadados de
+desenvolvimento do Fontconfig também não foram encontrados. Naquela tentativa, o
+build completo não foi executado após esse bloqueio; somente o build sem GUI
+acima passou. A instalação de `pkg-config` e `libfontconfig1-dev` foi
+autorizada, mas `sudo -n apt-get update` recusou por exigir senha; nenhum pacote
+foi instalado. O `cargo` do PATH inicial era um shim Mise sem versão; os checks
+foram executados com `$HOME/.cargo/bin` à frente do PATH, usando Rustup e o
+toolchain 1.98.1 do repositório, sem reconfigurar defaults globais.
+
+**Gate completo verificado após instalação pelo responsável:**
+`pkg-config --modversion fontconfig` confirmou Fontconfig 2.15.0. A primeira
+retomada excedeu o limite de 120 s durante a compilação dos testes; a repetição
+com limite de 600 s concluiu com sucesso os quatro comandos integrais de
+`CONTRIBUTING.md`, usando Cargo 1.98.1:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace
+cargo build --workspace
+```
+
+Resultado local Linux x86_64: **93 testes aprovados, zero falhas e 1 ignorado**
+(benchmark manual de processos, não aplicável à fatia), incluindo os 25 testes
+desktop com backend de teste Slint. Build completo passou. Essa evidência remove
+o bloqueio do gate local, mas não é CI novo, QA visual ou homologação nativa.
+
+**Smoke real Linux de montagem/remoção/remontagem:** duas execuções independentes
+de um ensaio local (`/tmp/opencode/nsm-volume-mount-smoke.py`, artefato temporário
+não versionado), cada uma com dois ciclos. `unshare --user --map-root-user --mount`
+isolou os mounts; `/tmp` privado em tmpfs isolou o IPC e a configuração do agente.
+Um bind mount de diretório existente foi criado/removido dentro do namespace,
+sem montar dispositivos nem alterar mounts do host. Os binários reais
+`target/debug/native-monitor-agent` e `target/debug/native-monitorctl` comprovaram:
+agente pronto, enumeração do mount, ambas as taxas `—` na primeira amostra,
+taxas presentes após continuidade, desaparecimento após desmontagem e novo
+aquecimento na remontagem. As duas execuções terminaram com `PASS: production
+collector -> agent -> IPC -> CLI mount/remove/remount journey`; agente próprio
+encerrado via SIGINT e mounts/IPC descartados ao sair. Exportação permaneceu
+desativada por default. O ensaio só imprimiu resultados de asserções, sem nomes
+ou métricas privadas. Isto verifica a reenumeração de mounts pelo caminho real,
+não conexão USB, hotplug físico, aferição de throughput ou GUI.
+
+**QA inicial em VM privada (2026-11-07):** Ubuntu Server 24.04 cloud image, QEMU
+10.0.13 com KVM; armazenamento da VM em `/mnt/storage/nsm-qa-vm` (fora do repo).
+Sessão X11 privada em Xvfb 1440 × 900, Openbox e renderer Slint software.
+Os binários locais recém-compilados foram copiados à VM; agente e GUI iniciaram,
+`monitorctl status` reportou `running`, e a captura inicial foi inspecionada. A
+janela visível era 1120 × 720, mostrando Overview, CPU/memória, agente ativo e
+idioma inglês. Evidência local não versionada. Isto verifica somente startup e
+primeiro frame; filtro e interação de GUI não foram testados. O primeiro QMP
+`device_add` falhou porque `pcie.0` não aceita hotplug; a VM foi desligada e
+reiniciada com uma root-port dedicada, mas o hotplug de disco não foi repetido
+nem verificado. Portanto não há ainda evidência de storage GUI ou hotplug virtual.
+
+**Limites da evidência:** testes determinísticos com dados sintéticos executados
+em Linux x86_64; smoke de bind-mount real em namespace Linux exercitou CLI, não
+conexão USB nem I/O físico. Não houve ensaio de taxa contra fonte independente
+nesta fatia, validação nativa macOS/Windows ou homologação. O CI verde de
+`3882c7e` é anterior e não verifica este checkout. Nenhuma captura ou dado privado
+do host foi adicionado ao repositório. A identidade local não detecta troca
+entre ciclos que reutilize mount, filesystem e nome com counters não regressivos
+(ADR-005). M2 permanece em andamento. Próximo passo: concluir o smoke da VM,
+reiniciada com root-port, anexando/desanexando o disco virtual descartável e
+verificando CLI + GUI na ausência/retomada de taxas. Isto será hotplug virtual,
+não validação USB física. Depois, fonte independente para taxas e adaptadores /
+validação nativa macOS e Windows ainda são necessários. O QA da VM é isolado e
+software-renderizado; não declara homologação do host, outros renderers, HiDPI,
+Wayland, GPU real nem leitores de tela.
 
 **Sequência de execução:** fechar lacunas nativas de M0/M1 quando houver
 ambiente/plataforma disponível; concluir a jornada M2 (I/O físico, validação de
