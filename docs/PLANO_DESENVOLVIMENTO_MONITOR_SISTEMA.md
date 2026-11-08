@@ -913,13 +913,281 @@ por núcleo e título da seção GPU/VRAM — foram externalizados para TOML pt-
 en-US. O teste de catálogo verifica todos os valores nos dois idiomas; a
 integração Slint alterna a localidade e confirma os rótulos acessíveis dos
 intervalos, o estado vazio de CPU por núcleo e as seções de CPU e GPU/VRAM. Não
-cobre renderização visual ou acessibilidade nativa por OS; o texto compartilhado
-“agora” dos gráficos, status dinâmicos e outras strings das páginas seguem
-pendentes. Gate local em Rust 1.98.1: `cargo fmt --all -- --check`,
+cobre renderização visual ou acessibilidade nativa por OS; naquele ponto, o texto
+compartilhado “agora” dos gráficos, status dinâmicos e outras strings das páginas
+seguiam pendentes. Gate local em Rust 1.98.1: `cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`,
 `SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**142 aprovados, 0 falhas,
 1 teste manual ignorado**), `cargo build --workspace` e `git diff --check`
 passaram. Nenhuma CI nova foi executada; M7 permanece em andamento.
+
+**Catálogos M7 de gráficos, Storage e Network (2026-11-07):** os textos
+“agora/now” e “Aguardando amostras/Waiting for samples” foram externalizados
+para a seção `charts` dos catálogos TOML pt-BR/en-US. Também foram movidos para
+TOML os cabeçalhos de volumes e atividade de bloco, os rótulos SI/IEC e os
+cabeçalhos de interfaces de rede; as labels acessíveis usam os mesmos recursos.
+Os catálogos são aplicados no início da GUI e na troca de idioma. Testes Slint
+verificam os textos acessíveis nos gráficos de Visão geral/Desempenho e nas
+páginas Storage/Network em ambas as línguas, incluindo os rótulos acessíveis dos
+seletores SI/IEC; testes de catálogo validam os valores dos dois idiomas. Nenhuma
+coleta ou contrato IPC foi alterado. Gate local com Rust 1.98.1 passou:
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**144 aprovados, 0 falhas,
+1 teste manual ignorado**) e `cargo build --workspace`. Nenhuma CI nova foi
+executada; renderização visual e acessibilidade nativa por OS continuam pendentes.
+
+**Detalhes e estados da árvore de processos i18n M7 (2026-11-07):** rótulos
+“Início/Started”, “RAM/Memory”, instrução sem seleção e título somente leitura da
+árvore estão nos catálogos pt-BR/en-US e ligados às labels acessíveis. Loading,
+truncamento, árvore vazia, processo ausente e erro agora são estados tipados,
+traduzidos pelo catálogo; o estado atual é reapresentado no idioma novo ao trocar
+a localidade, sem aguardar uma nova consulta para traduzir texto já visível. A
+integração Slint verifica detalhes e árvore truncada visíveis em inglês, troca
+para pt-BR enquanto a árvore continua visível e confirma os textos atualizados; o
+teste de catálogo cobre todos os estados e fallback de código desconhecido.
+Gate local com Rust 1.98.1 passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**145 aprovados, 0 falhas,
+1 teste manual ignorado**) e `cargo build --workspace`. Nenhuma CI nova foi
+executada; M7 e QA visual/nativa por OS permanecem em andamento.
+
+**Faixas temporais dos gráficos i18n M7 (2026-11-07):** “início/start”,
+“histórico/history”, “sem dados/no data” e o padrão de minutos atrás foram
+movidos para os catálogos pt-BR/en-US. A seleção do intervalo agora retorna um
+estado tipado, não uma string em português que depois precisa ser interpretada;
+o template de minutos valida exatamente um token `{minutes}` e usa agrupamento
+numérico conforme a localidade. O último estado das duas séries fica disponível
+ao callback de idioma, que reaplica os rótulos imediatamente sem esperar outra
+consulta IPC. O teste Slint alterna pt-BR → en-US → pt-BR e confere os dois
+rótulos acessíveis dos gráficos; testes de catálogo cobrem início, histórico,
+sem dados, minutos e agrupamento `1.234`/`1,234`. Gate local em Rust 1.98.1:
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**144 aprovados, 0 falhas,
+1 teste manual ignorado**), `cargo build --workspace` e `git diff --check`
+passaram. Nenhuma CI nova foi executada; renderização visual e QA nativo seguem
+pendentes, e M7 permanece em andamento.
+
+**Estados de disponibilidade de métricas i18n M7 (2026-11-07):** os estados
+`ok`, `warming_up`, `unsupported`, `temporarily_unavailable` e `error` agora
+usam chaves dos catálogos pt-BR/en-US, em vez de literais na função de
+apresentação em `main.rs`. A mesma resolução é usada nos estados de GPU, bateria,
+CPU, memória e I/O de bloco; códigos desconhecidos continuam visíveis sem serem
+alterados. O teste Slint injeta o estado `warming_up` no detalhe acessível do
+cartão de CPU e, ao alternar pt-BR → en-US → pt-BR, verifica “Aquecendo” →
+“Warming up” → “Aquecendo”. Testes de catálogo verificam os cinco estados nos dois
+idiomas e preservação de estado desconhecido. Gate local com Rust 1.98.1 passou:
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**145 aprovados, 0 falhas,
+1 teste manual ignorado**) e `cargo build --workspace`. Nenhuma CI nova foi
+executada; M7 continua em andamento e QA visual/nativa por OS não foi feita.
+
+**Estados de capacidade e listas vazias i18n M7 (2026-11-07):** mensagens de
+protocolo antigo sem suporte a GPU, bateria, volumes, taxas de I/O por volume,
+interfaces de rede e I/O de bloco foram externalizadas via template e descritores
+tipados em `[capability-status]`; também estão no catálogo os estados sem volumes
+montados e sem interfaces de rede. O Slint expõe esses estados como labels
+acessíveis. A integração alterna pt-BR/en-US nos cartões de bateria/GPU e nas
+páginas Storage/Network, verificando as mensagens visíveis em ambos os idiomas;
+testes de catálogo cobrem todas as capacidades e listas vazias. Gate local em
+Rust 1.98.1 passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**146 aprovados, 0 falhas,
+1 teste manual ignorado**) e `cargo build --workspace`. Nenhuma CI foi executada;
+M7 segue em andamento e QA visual/nativa por OS continua pendente.
+
+**Frescor da amostra i18n M7 (2026-11-07):** estados “aguardando primeira
+amostra”, “menos de um segundo”, idade em segundos/minutos e “sem amostra
+recente” agora vêm de `[sample-age]` nos catálogos pt-BR/en-US. A apresentação
+usa `SampleAgeLabel` tipado em vez de construir uma frase em português e depois
+reinterpretá-la; templates validam exatamente um `{amount}` e formatam os números
+com agrupamento local. O último estado e timestamp são conservados para reaplicar
+o rótulo existente ao alternar idioma, sem esperar nova resposta IPC. O teste
+Slint confirma a label acessível “Amostra há 1.234 min” → “Sample 1,234 min ago”
+→ “Amostra há 1.234 min”; testes unitários cobrem amostra inicial, idade curta,
+segundos, minutos, relógio adiantado e desconexão. Gate local em Rust 1.98.1
+passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**147 aprovados, 0 falhas,
+1 teste manual ignorado**) e `cargo build --workspace`. Nenhuma CI nova ou QA
+visual/nativa foi executada; M7 continua em andamento.
+
+**Estados de conexão/telemetria indisponível i18n M7 (2026-11-07):** “Agente
+desconectado” / “Agent disconnected”, “Aguardando conexão com o agente…” / “Waiting
+for agent connection…” e os fallbacks de GPU/bateria indisponíveis estão
+centralizados em `[connection-status]`. O texto de espera antes estava duplicado
+na seção de processos; agora essa página e os estados de Storage, Network e
+métricas usam a mesma entrada. Defaults Slint dos estados foram limpos e a GUI
+aplica o catálogo no início, no erro IPC e na troca de idioma, relocalizando os
+estados já visíveis sem outra consulta. O teste Slint verifica os labels acessíveis
+de desconexão, GPU, bateria e páginas Storage/Network após alternar pt-BR → en-US
+→ pt-BR; teste de catálogo valida as traduções. Gate local em Rust 1.98.1 passou:
+`cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**148 aprovados, 0 falhas,
+1 teste manual ignorado**) e `cargo build --workspace`. Sem CI nova ou QA
+visual/nativa; M7 permanece em andamento.
+
+**Fallbacks e resumos de telemetria i18n M7 (2026-11-07):** os textos de dado
+indisponível, amostra indisponível, nome de núcleo, estado/potência desconhecidos,
+percentual de memória e estados de swap agora vêm de `[telemetry-status]` nos
+catálogos pt-BR/en-US. O caminho de snapshots usa os catálogos para CPU/memória,
+bateria e núcleos; `process_start_age_label` consulta o catálogo para timestamps
+ausentes. Memória e swap passam a montar seus resumos diretamente no idioma ativo;
+foi removido `localize_summary`, que reinterpretava frases em português com
+substituições. A validação exige exatamente um `{number}` e `{percentage}` nos
+templates. Testes de catálogo cobrem ambos os idiomas e agrupamento de 1.234; o
+teste Slint verifica rótulos acessíveis de indisponibilidade e de núcleo ao
+alternar pt-BR → en-US → pt-BR. Gate local passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 benchmark manual ignorado**) e `cargo build --workspace`. `git diff --check`
+também passou. Não houve CI nova nem QA visual/nativa; M7 permanece em andamento.
+
+**Idade relativa dos processos i18n M7 (2026-11-07):** rótulos de segundos,
+minutos, horas e dias passaram para `[process-age]`, com formas singular/plural
+inglesas e separadores numéricos locais. `process_start_age_label` escolhe um
+`ProcessAgeUnit` tipado e delega a apresentação aos catálogos; todos os sete
+templates validam exatamente um `{amount}`. Testes verificam singular/plural,
+`1.234`/`1,234`, timestamp ausente e relógio anterior ao início. A integração
+Slint confirma o detalhe acessível do processo em inglês (“1 min ago”) e, após
+alternar para pt-BR, em português (“há 1 min”). Gate local passou: `cargo fmt
+--all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**150 aprovados, 0 falhas,
+1 teste manual ignorado**), `cargo build --workspace` e `git diff --check`. Nenhuma
+CI ou QA visual/nativa foi executada; M7 continua em andamento.
+
+**Tipo de interface de rede i18n M7 (2026-11-07):** os valores `Loopback` e o
+fallback `Unknown`/`Desconhecido` foram movidos para `network.kind-loopback` e
+`network.kind-unknown` nos catálogos pt-BR/en-US. A conversão de cada linha no
+worker usa o catálogo ativo em vez de uma ramificação por `Locale`. Teste de
+catálogo verifica as quatro combinações; a integração Slint verifica os labels
+acessíveis `lo, Loopback` e `enp-test, Desconhecido` em pt-BR, e `lo, Loopback` e
+`enp-test, Unknown` após trocar para en-US. Gate local passou: `cargo fmt --all
+-- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**150 aprovados, 0 falhas,
+1 teste manual ignorado**), `cargo build --workspace` e `git diff --check`. Nenhuma
+CI ou QA visual/nativa foi executada; M7 permanece em andamento.
+
+**Resumos acessíveis dos gráficos i18n M7 (2026-11-08):** títulos de CPU/memória,
+estado sem amostras e resumo com contagem, mínimo, máximo e valor mais recente
+agora usam templates de `[charts]` pt-BR/en-US, com validação de exatamente um
+token por variável. O estado compartilhado conserva os pontos efetivamente
+exibidos e as faixas selecionadas; o callback de idioma refaz os dois resumos a
+partir desses dados, sem aguardar novo snapshot. Defaults hardcoded nos labels
+acessíveis do Slint foram removidos. Testes cobrem séries vazias, valores não
+finitos, agrupamento de contagem, ambos os gráficos e alternância pt-BR → en-US →
+pt-BR via integração Slint. Gate local passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**150 aprovados, 0 falhas,
+1 benchmark manual ignorado**), `cargo build --workspace` e `git diff --check`.
+Não houve CI nem QA visual/nativa; M7 continua em andamento.
+
+**Estados de ciclo de vida do agente i18n M7 (2026-11-08):** textos de conexão,
+agente ativo/conectado/indisponível, falha ao configurar início automático e
+modos systemd/XDG/LaunchAgent/logon do Windows foram externalizados em
+`[agent-status]` pt-BR/en-US. Os seis templates de estado são validados por seus
+tokens; erros de IPC e de inicialização continuam preservados como dados, sem
+tentar traduzi-los. O worker guarda os parâmetros do último estado e o callback
+de idioma reapresenta imediatamente a mensagem no catálogo ativo; o estado inicial
+“Conectando ao agente…” também não fica hardcoded no Slint. Testes cobrem todas as
+variantes e modos em ambos os catálogos; a integração Slint verifica o label
+acessível “Agente indisponível · IPC: socket not found” → “Agent unavailable · IPC:
+socket not found” → português novamente. Gate local passou: `cargo fmt --all --
+--check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 benchmark manual ignorado**) e `cargo build --workspace`; `git diff --check`
+também passou. Não houve CI ou QA visual/nativa; M7 permanece em andamento.
+
+**Descrições acessíveis da ordenação de processos i18n M7 (2026-11-08):**
+descrições dos estados não ordenado, crescente e decrescente foram movidas para
+`processes.sort-*-description` nos catálogos pt-BR/en-US. `apply_process_texts`
+passa os três textos por propriedades do `MainWindow` aos cabeçalhos Slint; o
+componente não decide mais idioma nem contém frases inline. Teste de catálogo
+confere os seis valores; integração Slint verifica os três estados em pt-BR e
+en-US e confirma pt-BR após a alternância. Gate local passou: `cargo fmt --all --
+--check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 verificação manual ignorada**), `cargo build --workspace` e `git diff --check`.
+Não houve CI nem QA visual/nativa. A auditoria M7 ainda encontrou os defaults
+inline “Aguardando primeira amostra” nos status iniciais de CPU, memória e swap;
+M7 segue em andamento.
+
+**Defaults iniciais de telemetria i18n M7 (2026-11-08):** os status iniciais de
+CPU, memória e swap deixaram de ter texto literal no Slint. A inicialização da
+janela preenche os três com `sample-age.waiting-first-sample`, já existente nos
+catálogos pt-BR/en-US, sem duplicar a mesma mensagem em outra seção. O teste de
+integração Slint alterna pt-BR → en-US → pt-BR e verifica os três valores da
+janela em cada idioma. Gate local passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 verificação manual ignorada**), `cargo build --workspace` e `git diff --check`.
+Não houve CI nem QA visual/nativa; a auditoria M7 continua.
+
+**Label acessível das linhas de processo i18n M7 (2026-11-08):** o texto
+“memory”/“memória” usado na descrição acessível de cada processo foi movido para
+`processes.memory-accessible-label` nos catálogos pt-BR/en-US. `apply_process_texts`
+passa a propriedade ao Slint, removendo o ramo de idioma e as duas frases inline;
+a integração Slint confirma a descrição da linha nos dois idiomas após alternar
+pt-BR/en-US. Gate local passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 verificação manual ignorada**), `cargo build --workspace` e `git diff --check`.
+Não houve CI nem QA visual/nativa; M7 permanece em andamento.
+
+**Rótulos técnicos da tela de processos i18n M7 (2026-11-08):** os rótulos `PID`,
+`PPID` e `CPU` foram movidos para `processes.pid-label`,
+`processes.parent-pid-label` e `processes.cpu-label` nos catálogos pt-BR/en-US.
+Embora os valores atuais sejam abreviações iguais nos dois idiomas, cabeçalhos,
+detalhes do processo selecionado e labels acessíveis agora usam as propriedades
+catalogadas, sem strings inline no Slint. Testes de catálogo cobrem os dois
+idiomas; a integração verifica cabeçalhos, identidade/detalhes e linhas acessíveis
+após alternância de idioma. Gate local passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 verificação manual ignorada**), `cargo build --workspace` e `git diff --check`.
+Não houve CI nem QA visual/nativa; M7 continua em andamento.
+
+**Rótulo PID da árvore de processos i18n M7 (2026-11-08):** o texto `PID` que
+formatava cada linha da árvore de processos deixou de ficar embutido em Rust.
+`process_tree_rows` recebe `processes.pid-label` do catálogo ativo; teste cobre a
+formatação e a ordem/profundidade da árvore para pt-BR e en-US. Gate local passou:
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 verificação manual ignorada**), `cargo build --workspace` e `git diff --check`.
+Não houve CI nem QA visual/nativa; M7 permanece em andamento.
+
+**Nomes acessíveis dos seletores de idioma i18n M7 (2026-11-08):**
+`Português (Brasil)` e `English (United States)` foram movidos das propriedades
+inline do Slint para `header.language-*-accessible` nos dois catálogos. Os nomes
+próprios continuam em sua forma nativa em ambos os locales. Teste de catálogo
+verifica os quatro valores; integração Slint verifica os nomes acessíveis antes
+e depois da seleção en-US. Gate local passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 verificação manual ignorada**), `cargo build --workspace` e `git diff --check`.
+Não houve CI nem QA visual/nativa; auditoria M7 e plano M0–M8 permanecem abertos.
+
+**Abreviações visíveis dos seletores de idioma i18n M7 (2026-11-08):** os rótulos
+`PT` e `EN` saíram dos literais no Slint e agora vêm de
+`header.language-pt-br-short` e `header.language-en-us-short` nos catálogos
+pt-BR/en-US. As abreviações continuam iguais nos dois locales; o teste de
+catálogo verifica ambos e a integração exercita os seletores ao trocar de idioma.
+Gate local passou: `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+1 verificação manual ignorada**), `cargo build --workspace` e `git diff --check`.
+Não houve CI nem QA visual/nativa; auditoria M7 e plano M0–M8 permanecem abertos.
+
+**Varredura de literais Slint M7 (2026-11-08):** após externalizar `PT`/`EN`, a
+busca por strings restantes em `apps/desktop/ui/*.slint` encontrou apenas nomes
+de import, chaves/valores de protocolo e seleção interna, códigos de locale e
+símbolos padronizados de unidade (`MB`, `MiB`, `SI`, `IEC`, `%`); não identificou
+outra frase traduzível inline nesta camada. Isso encerra apenas esta passagem
+estática de textos Slint, não o aceite M7 de acessibilidade/teclado, QA visual e
+nativa, estabilidade ou hardware.
 
 **Bloqueios externos de M2 (separados do QA virtual):**
 
@@ -928,15 +1196,21 @@ passaram. Nenhuma CI nova foi executada; M7 permanece em andamento.
 - **macOS Apple Silicon, Windows 11 x64 e Linux ARM64 — bloqueados para runtime:**
   requerem máquinas/sessões nativas; CI de compilação não prova enumeração,
   semântica de I/O, hotplug ou comportamento visual nesses sistemas.
+- **QA visual M7 neste ambiente — bloqueada:** a sessão atual é `tty`, sem
+  `DISPLAY`/`WAYLAND_DISPLAY`; o probe read-only não encontrou KWin, Xvfb,
+  ferramentas de captura/entrada nem workspace gráfico privado. Nenhuma sessão
+  do usuário foi acessada e nenhuma ferramenta foi instalada. Para screenshots e
+  interação real, é necessário um workspace gráfico privado aprovado ou host de QA
+  com captura e entrada disponíveis; testes Slint de integração não substituem
+  essa evidência.
 
-**Regressão de atualização da GUI encontrada e corrigida nesta QA:** após o
-histórico completar a janela, a localização do rótulo `−5 min` panica ao tentar
-cortar a string UTF-8 pelo byte 1. O panic encerrava o worker IPC da janela e
-congelava todos os modelos, inclusive Storage, embora agente e CLI continuassem
-atuais. `localize_history_label` agora remove o prefixo Unicode com
-`strip_prefix('−')`; o teste `negative_history_labels_are_localized_without_panicking`
-falhou antes da correção com o mesmo panic e passou depois. Na GUI corrigida, o
-ensaio de escrita atualizou taxas/capacidade, a remoção/reconexão refletiu-se na
+**Regressão histórica de atualização da GUI:** após o histórico completar a
+janela, uma implementação antiga da localização do rótulo `−5 min` panica ao
+cortar a string UTF-8 pelo byte 1, encerrando o worker IPC da janela e congelando
+os modelos. A correção daquela revisão usou `strip_prefix('−')`; a implementação
+vigente, registrada acima, substituiu a tradução baseada em strings por um estado
+tipado e templates catalogados, eliminando esse caminho de corte. Na QA original,
+um ensaio de escrita atualizou taxas/capacidade, remoção/reconexão refletiu-se na
 tela e o log não registrou novo panic.
 
 **Gate local após a correção UTF-8 (2026-11-07):** passaram `cargo fmt --all --

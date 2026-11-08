@@ -19,7 +19,10 @@ slint::include_modules!();
 mod localization;
 mod ui_settings;
 
-use localization::{CountKind, UiCatalogs};
+use localization::{
+    ChartHistoryRange, ChartMetric, CountKind, EmptyDeviceCollection, ProcessAgeUnit,
+    ProcessTreeStatus, SampleAgeLabel, TelemetryStatusTexts, UiCatalogs, UnsupportedCapability,
+};
 use ui_settings::{ByteUnitSystem, UiSettings};
 
 const MAX_PROCESS_ROWS: usize = 1_000;
@@ -40,6 +43,28 @@ const FIVE_MINUTES_MS: u64 = 300_000;
 enum Locale {
     PtBr,
     EnUs,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum SampleAgeState {
+    WaitingForFirstSample = 0,
+    SampleAvailable = 1,
+    NoRecentSample = 2,
+}
+
+impl SampleAgeState {
+    fn code(self) -> u8 {
+        self as u8
+    }
+
+    fn from_code(value: u8) -> Self {
+        match value {
+            1 => Self::SampleAvailable,
+            2 => Self::NoRecentSample,
+            _ => Self::WaitingForFirstSample,
+        }
+    }
 }
 
 impl Locale {
@@ -87,94 +112,6 @@ impl Locale {
         }
     }
 
-    fn unavailable(self) -> &'static str {
-        if self == Self::EnUs {
-            "Unavailable"
-        } else {
-            "Indisponível"
-        }
-    }
-    fn unavailable_sample(self) -> &'static str {
-        if self == Self::EnUs {
-            "Unavailable in this sample"
-        } else {
-            "Indisponível nesta amostra"
-        }
-    }
-    fn core_name(self) -> &'static str {
-        if self == Self::EnUs {
-            "Core {}"
-        } else {
-            "Núcleo {}"
-        }
-    }
-    fn unknown_state(self) -> &'static str {
-        if self == Self::EnUs {
-            "unknown state"
-        } else {
-            "estado desconhecido"
-        }
-    }
-    fn power_unavailable(self) -> &'static str {
-        if self == Self::EnUs {
-            "power unavailable"
-        } else {
-            "potência indisponível"
-        }
-    }
-    fn no_recent_sample(self) -> &'static str {
-        if self == Self::EnUs {
-            "No recent sample"
-        } else {
-            "Sem amostra recente"
-        }
-    }
-    fn agent_disconnected(self) -> &'static str {
-        if self == Self::EnUs {
-            "Agent disconnected"
-        } else {
-            "Sem conexão com o agente"
-        }
-    }
-    fn waiting_for_agent(self) -> &'static str {
-        if self == Self::EnUs {
-            "Waiting for agent connection…"
-        } else {
-            "Aguardando conexão com o agente…"
-        }
-    }
-    fn gpu_unavailable(self) -> &'static str {
-        if self == Self::EnUs {
-            "GPU unavailable"
-        } else {
-            "GPU indisponível"
-        }
-    }
-    fn battery_unavailable(self) -> &'static str {
-        if self == Self::EnUs {
-            "Battery unavailable"
-        } else {
-            "Bateria indisponível"
-        }
-    }
-    fn relative_age(self, amount: u64, english_unit: &str, portuguese_unit: &str) -> String {
-        let formatted_amount = self.format_integer(u128::from(amount));
-        if self == Self::EnUs {
-            let unit = match (english_unit, amount) {
-                ("sec", 1) => "sec",
-                ("sec", _) => "secs",
-                ("min", _) => "min",
-                ("hr", 1) => "hr",
-                ("hr", _) => "hrs",
-                ("day", 1) => "day",
-                ("day", _) => "days",
-                _ => english_unit,
-            };
-            format!("{formatted_amount} {unit} ago")
-        } else {
-            format!("há {formatted_amount} {portuguese_unit}")
-        }
-    }
     fn format_integer(self, value: u128) -> String {
         self.group_integer(&value.to_string())
     }
@@ -215,36 +152,6 @@ impl Locale {
             grouped.push(char::from(digit));
         }
         grouped
-    }
-    fn unsupported(self, what: &str) -> String {
-        let what = match (self, what) {
-            (Self::EnUs, "GPU metrics") => "GPU metrics",
-            (Self::EnUs, "battery metrics") => "battery metrics",
-            (Self::EnUs, "mounted volumes") => "mounted volumes",
-            (Self::EnUs, "per-volume I/O rates") => "per-volume I/O rates",
-            (Self::EnUs, "network interfaces") => "network interfaces",
-            (Self::EnUs, "block device I/O") => "block device I/O",
-            (_, "GPU metrics") => "métricas de GPU",
-            (_, "battery metrics") => "métricas de bateria",
-            (_, "mounted volumes") => "volumes montados",
-            (_, "per-volume I/O rates") => "taxas de I/O por volume",
-            (_, "network interfaces") => "interfaces de rede",
-            (_, "block device I/O") => "I/O de dispositivos",
-            _ => what,
-        };
-        if self == Self::EnUs {
-            format!("Agent does not support {what} in this version")
-        } else {
-            format!("Agente sem suporte a {what} nesta versão")
-        }
-    }
-    fn none_available(self, what: &str) -> String {
-        match (self, what) {
-            (Self::EnUs, "mounted volumes") => "No mounted volumes available.".to_owned(),
-            (Self::EnUs, _) => "No network interfaces available.".to_owned(),
-            (Self::PtBr, "mounted volumes") => "Nenhum volume montado disponível.".to_owned(),
-            (Self::PtBr, _) => "Nenhuma interface de rede disponível.".to_owned(),
-        }
     }
 }
 
@@ -306,19 +213,115 @@ struct UiPreferences {
     selected_process_key: Option<String>,
 }
 
+#[derive(Debug)]
+struct ChartHistoryUiState {
+    cpu_range: ChartHistoryRange,
+    memory_range: ChartHistoryRange,
+    cpu_values: Vec<f32>,
+    memory_values: Vec<f32>,
+}
+
+#[derive(Clone, Debug)]
+enum AgentStatusState {
+    Connected {
+        collection_status: String,
+        startup_mode: Option<StartupMode>,
+        startup_error: Option<String>,
+    },
+    Unavailable {
+        ipc_error: String,
+        startup_mode: Option<StartupMode>,
+        startup_error: Option<String>,
+    },
+}
+
+impl AgentStatusState {
+    fn connected(&self) -> bool {
+        matches!(self, Self::Connected { .. })
+    }
+
+    fn startup_configured(&self) -> bool {
+        match self {
+            Self::Connected {
+                startup_mode: Some(_),
+                startup_error: None,
+                ..
+            }
+            | Self::Unavailable {
+                startup_mode: Some(_),
+                startup_error: None,
+                ..
+            } => true,
+            Self::Connected { .. } | Self::Unavailable { .. } => false,
+        }
+    }
+
+    fn text(&self, catalogs: &UiCatalogs, locale: Locale) -> String {
+        let texts = catalogs.agent_status_texts(locale);
+        match self {
+            Self::Connected {
+                collection_status,
+                startup_mode,
+                startup_error,
+            } => texts.lifecycle(collection_status, *startup_mode, startup_error.as_deref()),
+            Self::Unavailable {
+                ipc_error,
+                startup_mode,
+                startup_error,
+            } => texts.unavailable(ipc_error, *startup_mode, startup_error.as_deref()),
+        }
+    }
+}
+
+impl Default for ChartHistoryUiState {
+    fn default() -> Self {
+        Self {
+            cpu_range: ChartHistoryRange::NoData,
+            memory_range: ChartHistoryRange::NoData,
+            cpu_values: Vec::new(),
+            memory_values: Vec::new(),
+        }
+    }
+}
+
 fn main() -> Result<()> {
     initialize_logging();
 
     let ui_catalogs = Arc::new(UiCatalogs::load()?);
     let window = MainWindow::new().context("create the desktop window")?;
     let initial_locale = Locale::from_system();
+    let sample_age_state = Arc::new(AtomicU8::new(SampleAgeState::WaitingForFirstSample.code()));
+    let sample_captured_at = Arc::new(AtomicU64::new(0));
+    let chart_history_ui_state = Arc::new(Mutex::new(ChartHistoryUiState::default()));
+    let agent_status_state = Arc::new(Mutex::new(None::<AgentStatusState>));
     window.set_language(initial_locale.ui_language());
+    window.set_sample_age(SharedString::from(sample_age_status_text(
+        SampleAgeState::WaitingForFirstSample,
+        0,
+        unix_time_ms(),
+        &ui_catalogs,
+        initial_locale,
+    )));
+    apply_initial_metric_statuses(&window, &ui_catalogs, initial_locale);
     apply_header_texts(&window, &ui_catalogs, initial_locale);
+    window.set_agent_status(SharedString::from(
+        ui_catalogs.agent_status_texts(initial_locale).connecting(),
+    ));
     apply_navigation_texts(&window, &ui_catalogs, initial_locale);
     apply_density_texts(&window, &ui_catalogs, initial_locale);
     apply_overview_texts(&window, &ui_catalogs, initial_locale);
     apply_performance_texts(&window, &ui_catalogs, initial_locale);
+    apply_chart_texts(&window, &ui_catalogs, initial_locale);
+    apply_chart_ui_state(
+        &window,
+        &ui_catalogs,
+        initial_locale,
+        &ChartHistoryUiState::default(),
+    );
+    apply_storage_texts(&window, &ui_catalogs, initial_locale);
+    apply_network_texts(&window, &ui_catalogs, initial_locale);
     apply_process_texts(&window, &ui_catalogs, initial_locale);
+    apply_agent_connection_status_texts(&window, &ui_catalogs, initial_locale, false);
     window.set_volume_count(SharedString::from(ui_catalogs.format_count(
         CountKind::Volumes,
         0,
@@ -330,6 +333,7 @@ fn main() -> Result<()> {
         initial_locale,
     )));
     let locale_state = Arc::new(AtomicU8::new(initial_locale.code()));
+    let process_tree_status_state = Arc::new(AtomicU8::new(ProcessTreeStatus::None.code()));
     let settings_path = ui_settings::default_settings_path();
     let initial_ui_settings = match settings_path.as_deref() {
         Some(path) => match UiSettings::load(path) {
@@ -361,6 +365,11 @@ fn main() -> Result<()> {
     });
     let locale_for_callback = Arc::clone(&locale_state);
     let catalogs_for_locale_callback = Arc::clone(&ui_catalogs);
+    let sample_age_state_for_locale_callback = Arc::clone(&sample_age_state);
+    let sample_captured_at_for_locale_callback = Arc::clone(&sample_captured_at);
+    let chart_ui_state_for_locale_callback = Arc::clone(&chart_history_ui_state);
+    let agent_status_state_for_locale_callback = Arc::clone(&agent_status_state);
+    let tree_status_for_locale_callback = Arc::clone(&process_tree_status_state);
     let weak_window_for_locale = window.as_weak();
     window.on_language_selected(move |value| {
         let Some(locale) = Locale::from_selection(value.as_str()) else {
@@ -375,7 +384,62 @@ fn main() -> Result<()> {
             apply_density_texts(&window, &catalogs_for_locale_callback, locale);
             apply_overview_texts(&window, &catalogs_for_locale_callback, locale);
             apply_performance_texts(&window, &catalogs_for_locale_callback, locale);
+            apply_chart_texts(&window, &catalogs_for_locale_callback, locale);
+            match chart_ui_state_for_locale_callback.lock() {
+                Ok(state) => {
+                    apply_chart_ui_state(&window, &catalogs_for_locale_callback, locale, &state)
+                }
+                Err(error) => warn!(%error, "chart history UI state is unavailable"),
+            }
+            match agent_status_state_for_locale_callback.lock() {
+                Ok(state) => {
+                    if let Some(state) = state.as_ref() {
+                        apply_agent_status_state(
+                            &window,
+                            &catalogs_for_locale_callback,
+                            locale,
+                            state,
+                        );
+                    } else {
+                        window.set_agent_status(SharedString::from(
+                            catalogs_for_locale_callback
+                                .agent_status_texts(locale)
+                                .connecting(),
+                        ));
+                    }
+                }
+                Err(error) => warn!(%error, "agent status state is unavailable"),
+            }
+            apply_storage_texts(&window, &catalogs_for_locale_callback, locale);
+            apply_network_texts(&window, &catalogs_for_locale_callback, locale);
             apply_process_texts(&window, &catalogs_for_locale_callback, locale);
+            let sample_age_state = SampleAgeState::from_code(
+                sample_age_state_for_locale_callback.load(Ordering::Acquire),
+            );
+            let sample_captured_at = sample_captured_at_for_locale_callback.load(Ordering::Acquire);
+            window.set_sample_age(SharedString::from(sample_age_status_text(
+                sample_age_state,
+                sample_captured_at,
+                unix_time_ms(),
+                &catalogs_for_locale_callback,
+                locale,
+            )));
+            if !window.get_agent_connected() {
+                apply_agent_connection_status_texts(
+                    &window,
+                    &catalogs_for_locale_callback,
+                    locale,
+                    sample_age_state == SampleAgeState::NoRecentSample,
+                );
+            }
+            let tree_status = ProcessTreeStatus::from_code(
+                tree_status_for_locale_callback.load(Ordering::Acquire),
+            );
+            window.set_process_tree_status(SharedString::from(process_tree_status_text(
+                &catalogs_for_locale_callback,
+                tree_status,
+                locale,
+            )));
         }
     });
     let preferences = Arc::new(Mutex::new(UiPreferences::default()));
@@ -459,6 +523,11 @@ fn main() -> Result<()> {
     let worker_preferences = Arc::clone(&preferences);
     let worker_locale = Arc::clone(&locale_state);
     let worker_catalogs = Arc::clone(&ui_catalogs);
+    let worker_sample_age_state = Arc::clone(&sample_age_state);
+    let worker_sample_captured_at = Arc::clone(&sample_captured_at);
+    let worker_chart_ui_state = Arc::clone(&chart_history_ui_state);
+    let worker_agent_status_state = Arc::clone(&agent_status_state);
+    let worker_tree_status = Arc::clone(&process_tree_status_state);
     let worker_byte_unit_system = Arc::clone(&byte_unit_system_state);
     let worker_history_window = Arc::clone(&history_window_ms);
     let weak_window = window.as_weak();
@@ -486,13 +555,14 @@ fn main() -> Result<()> {
             let mut startup_configured = false;
             let mut cached_tree_key = None::<String>;
             let mut cached_tree_rows = Vec::new();
-            let mut cached_tree_status = String::new();
+            let mut cached_tree_status = ProcessTreeStatus::None;
             let mut last_tree_refresh = None::<Instant>;
 
             while !worker_stop.load(Ordering::Acquire) {
                 let locale = Locale::from_code(worker_locale.load(Ordering::Acquire));
                 let byte_unit_system =
                     ByteUnitSystem::from_code(worker_byte_unit_system.load(Ordering::Acquire));
+                let telemetry_status = worker_catalogs.telemetry_status_texts(locale);
                 let (filter, sort, selected_process_key) = match worker_preferences.lock() {
                     Ok(preferences) => (
                         preferences.filter.clone(),
@@ -566,62 +636,55 @@ fn main() -> Result<()> {
                             match selected_process_key.as_deref() {
                                 Some(key) => {
                                     let selection_changed = cached_tree_key.as_deref() != Some(key);
-                                    let refresh_due = last_tree_refresh
-                                        .is_none_or(|last| last.elapsed() >= Duration::from_secs(5));
+                                    let refresh_due = last_tree_refresh.is_none_or(|last| {
+                                        last.elapsed() >= Duration::from_secs(5)
+                                    });
                                     if selection_changed {
                                         cached_tree_key = Some(key.to_owned());
                                         cached_tree_rows.clear();
-                                        cached_tree_status = if locale == Locale::EnUs {
-                                            "Loading process tree…".to_owned()
-                                        } else {
-                                            "Carregando árvore de processos…".to_owned()
-                                        };
+                                        cached_tree_status = ProcessTreeStatus::Loading;
+                                        worker_tree_status
+                                            .store(cached_tree_status.code(), Ordering::Release);
                                         last_tree_refresh = None;
                                     }
                                     if (selection_changed || refresh_due)
-                                        && let Some(process) = find_selected_process(&processes, key)
+                                        && let Some(process) =
+                                            find_selected_process(&processes, key)
                                     {
-                                        let tree_response = runtime.block_on(
-                                            client::request_process_tree(
+                                        let tree_response =
+                                            runtime.block_on(client::request_process_tree(
                                                 process.pid,
                                                 process.start_time_unix_seconds,
-                                            ),
-                                        );
+                                            ));
                                         last_tree_refresh = Some(Instant::now());
                                         match tree_response {
                                             Ok(tree_response) => {
-                                                if let Some(tree_snapshot) = tree_response.snapshot {
-                                                    cached_tree_rows =
-                                                        process_tree_rows(&tree_snapshot.processes);
-                                                    cached_tree_status = if tree_snapshot.process_tree_truncated {
-                                                        if locale == Locale::EnUs {
-                                                            "Tree truncated at the response limit.".to_owned()
+                                                if let Some(tree_snapshot) = tree_response.snapshot
+                                                {
+                                                    cached_tree_rows = process_tree_rows(
+                                                        &tree_snapshot.processes,
+                                                        worker_catalogs
+                                                            .process_texts(locale)
+                                                            .pid_label,
+                                                    );
+                                                    cached_tree_status =
+                                                        if tree_snapshot.process_tree_truncated {
+                                                            ProcessTreeStatus::Truncated
+                                                        } else if cached_tree_rows.is_empty() {
+                                                            ProcessTreeStatus::Empty
                                                         } else {
-                                                            "Árvore truncada no limite da resposta.".to_owned()
-                                                        }
-                                                    } else if cached_tree_rows.is_empty() {
-                                                        if locale == Locale::EnUs {
-                                                            "No process tree data available.".to_owned()
-                                                        } else {
-                                                            "Nenhum dado de árvore disponível.".to_owned()
-                                                        }
-                                                    } else {
-                                                        String::new()
-                                                    };
+                                                            ProcessTreeStatus::None
+                                                        };
                                                 }
                                             }
                                             Err(error) => {
                                                 cached_tree_rows.clear();
-                                                cached_tree_status = if format!("{error:#}").contains("process_not_found") {
-                                                    if locale == Locale::EnUs {
-                                                        "The selected process no longer exists.".to_owned()
-                                                    } else {
-                                                        "O processo selecionado não existe mais.".to_owned()
-                                                    }
-                                                } else if locale == Locale::EnUs {
-                                                    "Could not load the process tree.".to_owned()
+                                                cached_tree_status = if format!("{error:#}")
+                                                    .contains("process_not_found")
+                                                {
+                                                    ProcessTreeStatus::ProcessMissing
                                                 } else {
-                                                    "Não foi possível carregar a árvore de processos.".to_owned()
+                                                    ProcessTreeStatus::Error
                                                 };
                                             }
                                         }
@@ -630,12 +693,17 @@ fn main() -> Result<()> {
                                 None => {
                                     cached_tree_key = None;
                                     cached_tree_rows.clear();
-                                    cached_tree_status.clear();
+                                    cached_tree_status = ProcessTreeStatus::None;
                                     last_tree_refresh = None;
                                 }
                             }
+                            worker_tree_status.store(cached_tree_status.code(), Ordering::Release);
                             let process_tree = cached_tree_rows.clone();
-                            let process_tree_status = cached_tree_status.clone();
+                            let process_tree_status = process_tree_status_text(
+                                &worker_catalogs,
+                                cached_tree_status,
+                                locale,
+                            );
 
                             let selected_process = selected_process_key
                                 .as_deref()
@@ -647,6 +715,7 @@ fn main() -> Result<()> {
                                         now_unix_ms,
                                         locale,
                                         byte_unit_system,
+                                        &worker_catalogs,
                                     )
                                 });
                             if selected_process_key.is_some()
@@ -668,8 +737,14 @@ fn main() -> Result<()> {
                             let cpu_status = snapshot
                                 .cpu
                                 .as_ref()
-                                .map(|cpu| metric_status_label(cpu.status.as_str(), locale))
-                                .unwrap_or_else(|| locale.unavailable().to_owned());
+                                .map(|cpu| {
+                                    metric_status_label(
+                                        cpu.status.as_str(),
+                                        &worker_catalogs,
+                                        locale,
+                                    )
+                                })
+                                .unwrap_or_else(|| telemetry_status.unavailable().to_owned());
                             let (memory_value, memory_usage) = memory_summary(
                                 snapshot
                                     .memory
@@ -681,12 +756,19 @@ fn main() -> Result<()> {
                                     .and_then(|memory| memory.total_bytes),
                                 locale,
                                 byte_unit_system,
+                                &telemetry_status,
                             );
                             let memory_status = snapshot
                                 .memory
                                 .as_ref()
-                                .map(|memory| metric_status_label(memory.status.as_str(), locale))
-                                .unwrap_or_else(|| locale.unavailable().to_owned());
+                                .map(|memory| {
+                                    metric_status_label(
+                                        memory.status.as_str(),
+                                        &worker_catalogs,
+                                        locale,
+                                    )
+                                })
+                                .unwrap_or_else(|| telemetry_status.unavailable().to_owned());
                             let memory_sample_is_ok = snapshot
                                 .memory
                                 .as_ref()
@@ -696,7 +778,6 @@ fn main() -> Result<()> {
                                 &memory_usage,
                                 &memory_status,
                                 memory_sample_is_ok,
-                                locale,
                             );
                             let (swap_value, swap_status) = snapshot
                                 .memory
@@ -707,32 +788,58 @@ fn main() -> Result<()> {
                                         memory.swap_total_bytes,
                                         locale,
                                         byte_unit_system,
+                                        &telemetry_status,
                                     )
                                 })
                                 .unwrap_or_else(|| {
-                                    ("—".to_owned(), locale.unavailable_sample().to_owned())
+                                    (
+                                        "—".to_owned(),
+                                        telemetry_status.unavailable_sample().to_owned(),
+                                    )
                                 });
-                            let swap_status = localize_summary(swap_status, locale);
                             let selected_window = worker_history_window.load(Ordering::Acquire);
-                            let (cpu_history, cpu_start_label) = select_history(
+                            let (cpu_history, cpu_history_range) = select_history(
                                 &snapshot.cpu_history_percent,
                                 snapshot.history_interval_ms,
                                 selected_window,
                                 MAX_CHART_POINTS,
                             );
-                            let (memory_history, memory_start_label) = select_history(
+                            let (memory_history, memory_history_range) = select_history(
                                 &snapshot.memory_history_percent,
                                 snapshot.history_interval_ms,
                                 selected_window,
                                 MAX_CHART_POINTS,
                             );
-                            let cpu_start_label = localize_history_label(cpu_start_label, locale);
+                            match worker_chart_ui_state.lock() {
+                                Ok(mut state) => {
+                                    *state = ChartHistoryUiState {
+                                        cpu_range: cpu_history_range,
+                                        memory_range: memory_history_range,
+                                        cpu_values: cpu_history.clone(),
+                                        memory_values: memory_history.clone(),
+                                    };
+                                }
+                                Err(error) => {
+                                    warn!(%error, "chart history UI state is unavailable");
+                                }
+                            }
+                            let chart_texts = worker_catalogs.charts_texts(locale);
+                            let cpu_start_label =
+                                chart_texts.history_range_label(cpu_history_range, locale);
                             let memory_start_label =
-                                localize_history_label(memory_start_label, locale);
-                            let cpu_history_accessible_summary =
-                                chart_accessible_summary("CPU", &cpu_history, locale);
-                            let memory_history_accessible_summary =
-                                chart_accessible_summary("memory", &memory_history, locale);
+                                chart_texts.history_range_label(memory_history_range, locale);
+                            let cpu_history_accessible_summary = chart_accessible_summary(
+                                ChartMetric::Cpu,
+                                &cpu_history,
+                                &worker_catalogs,
+                                locale,
+                            );
+                            let memory_history_accessible_summary = chart_accessible_summary(
+                                ChartMetric::Memory,
+                                &memory_history,
+                                &worker_catalogs,
+                                locale,
+                            );
                             let cpu_cores = snapshot
                                 .cpu
                                 .as_ref()
@@ -741,11 +848,9 @@ fn main() -> Result<()> {
                                         .iter()
                                         .enumerate()
                                         .map(|(index, usage)| CpuCoreRow {
-                                            name: SharedString::from(format!(
-                                                "{} {}",
-                                                locale.core_name(),
-                                                index + 1
-                                            )),
+                                            name: SharedString::from(
+                                                telemetry_status.core_name(index + 1, locale),
+                                            ),
                                             usage: SharedString::from(format!(
                                                 "{}%",
                                                 locale.format_decimal(f64::from(*usage), 1)
@@ -811,6 +916,7 @@ fn main() -> Result<()> {
                                 response.protocol_minor,
                                 gpus.len(),
                                 snapshot.gpu_status.as_str(),
+                                &worker_catalogs,
                                 locale,
                             );
                             let battery_value = snapshot
@@ -819,22 +925,31 @@ fn main() -> Result<()> {
                                 .and_then(|battery| battery.capacity_percent)
                                 .map(|capacity| format!("{capacity}%"))
                                 .unwrap_or_else(|| "—".to_owned());
-                            let battery_status =
-                                if response.protocol_minor < BATTERY_METRICS_PROTOCOL_MINOR {
-                                    locale.unsupported("battery metrics").to_owned()
-                                } else if let Some(battery) = snapshot.batteries.first() {
-                                    let state =
-                                        battery.status.as_deref().unwrap_or(locale.unknown_state());
-                                    let power = battery
-                                        .power_watts
-                                        .map(|value| {
-                                            format!("{} W", locale.format_decimal(value, 1))
-                                        })
-                                        .unwrap_or_else(|| locale.power_unavailable().to_owned());
-                                    format!("{} · {state} · {power}", battery.id)
-                                } else {
-                                    metric_status_label(snapshot.battery_status.as_str(), locale)
-                                };
+                            let battery_status = if response.protocol_minor
+                                < BATTERY_METRICS_PROTOCOL_MINOR
+                            {
+                                worker_catalogs
+                                    .capability_status_texts(locale)
+                                    .unsupported(UnsupportedCapability::BatteryMetrics)
+                            } else if let Some(battery) = snapshot.batteries.first() {
+                                let state = battery
+                                    .status
+                                    .as_deref()
+                                    .unwrap_or(telemetry_status.unknown_state());
+                                let power = battery
+                                    .power_watts
+                                    .map(|value| format!("{} W", locale.format_decimal(value, 1)))
+                                    .unwrap_or_else(|| {
+                                        telemetry_status.power_unavailable().to_owned()
+                                    });
+                                format!("{} · {state} · {power}", battery.id)
+                            } else {
+                                metric_status_label(
+                                    snapshot.battery_status.as_str(),
+                                    &worker_catalogs,
+                                    locale,
+                                )
+                            };
                             let volumes = snapshot
                                 .volumes
                                 .iter()
@@ -865,11 +980,18 @@ fn main() -> Result<()> {
                                 .collect::<Vec<_>>();
                             let volume_status =
                                 if response.protocol_minor < VOLUME_QUERY_PROTOCOL_MINOR {
-                                    locale.unsupported("mounted volumes").to_owned()
+                                    worker_catalogs
+                                        .capability_status_texts(locale)
+                                        .unsupported(UnsupportedCapability::MountedVolumes)
                                 } else if response.protocol_minor < VOLUME_IO_QUERY_PROTOCOL_MINOR {
-                                    locale.unsupported("per-volume I/O rates").to_owned()
+                                    worker_catalogs
+                                        .capability_status_texts(locale)
+                                        .unsupported(UnsupportedCapability::PerVolumeIoRates)
                                 } else if volumes.is_empty() {
-                                    locale.none_available("mounted volumes").to_owned()
+                                    worker_catalogs
+                                        .capability_status_texts(locale)
+                                        .none_available(EmptyDeviceCollection::MountedVolumes)
+                                        .to_owned()
                                 } else {
                                     String::new()
                                 };
@@ -883,6 +1005,7 @@ fn main() -> Result<()> {
                                             interface.kind,
                                             response.protocol_minor,
                                         ),
+                                        &worker_catalogs,
                                         locale,
                                     )),
                                     received: SharedString::from(format_bytes_per_second(
@@ -899,9 +1022,14 @@ fn main() -> Result<()> {
                                 .collect::<Vec<_>>();
                             let network_status =
                                 if response.protocol_minor < NETWORK_QUERY_PROTOCOL_MINOR {
-                                    locale.unsupported("network interfaces").to_owned()
+                                    worker_catalogs
+                                        .capability_status_texts(locale)
+                                        .unsupported(UnsupportedCapability::NetworkInterfaces)
                                 } else if network_interfaces.is_empty() {
-                                    locale.none_available("network interfaces").to_owned()
+                                    worker_catalogs
+                                        .capability_status_texts(locale)
+                                        .none_available(EmptyDeviceCollection::NetworkInterfaces)
+                                        .to_owned()
                                 } else {
                                     String::new()
                                 };
@@ -940,10 +1068,7 @@ fn main() -> Result<()> {
                                         device
                                             .busy_percent
                                             .map(|value| {
-                                                format!(
-                                                    "{}%",
-                                                    locale.format_decimal(value, 1)
-                                                )
+                                                format!("{}%", locale.format_decimal(value, 1))
                                             })
                                             .unwrap_or_else(|| "—".to_owned()),
                                     ),
@@ -951,10 +1076,13 @@ fn main() -> Result<()> {
                                 .collect::<Vec<_>>();
                             let block_device_io_status =
                                 if response.protocol_minor < BLOCK_DEVICE_IO_PROTOCOL_MINOR {
-                                    locale.unsupported("block device I/O").to_owned()
+                                    worker_catalogs
+                                        .capability_status_texts(locale)
+                                        .unsupported(UnsupportedCapability::BlockDeviceIo)
                                 } else if block_devices.is_empty() {
                                     metric_status_label(
                                         snapshot.block_device_io_status.as_str(),
+                                        &worker_catalogs,
                                         locale,
                                     )
                                 } else {
@@ -974,6 +1102,7 @@ fn main() -> Result<()> {
                                         now_unix_ms,
                                         locale,
                                         byte_unit_system,
+                                        &worker_catalogs,
                                     )
                                 })
                                 .collect::<Vec<_>>();
@@ -995,27 +1124,59 @@ fn main() -> Result<()> {
                                 network_interfaces.len(),
                                 locale,
                             );
-                            let agent_status = lifecycle_status(
-                                status.as_str(),
+                            let agent_status_state = AgentStatusState::Connected {
+                                collection_status: status.to_owned(),
                                 startup_mode,
-                                startup_error.as_deref(),
+                                startup_error: startup_error.clone(),
+                            };
+                            match worker_agent_status_state.lock() {
+                                Ok(mut state) => *state = Some(agent_status_state.clone()),
+                                Err(error) => warn!(%error, "agent status state is unavailable"),
+                            }
+                            let sample_age_state = if captured_at == 0 {
+                                SampleAgeState::WaitingForFirstSample
+                            } else {
+                                SampleAgeState::SampleAvailable
+                            };
+                            worker_sample_captured_at.store(captured_at, Ordering::Release);
+                            worker_sample_age_state
+                                .store(sample_age_state.code(), Ordering::Release);
+                            let sample_age = sample_age_status_text(
+                                sample_age_state,
+                                captured_at,
+                                unix_time_ms(),
+                                &worker_catalogs,
+                                locale,
                             );
-                            let startup_configured =
-                                startup_mode.is_some() && startup_error.is_none();
-                            let sample_age =
-                                sample_age_label(captured_at, unix_time_ms(), locale);
-                            let sample_age = localized_sample_age(&sample_age, locale);
-                            let agent_status = localize_agent_status(agent_status, locale);
                             let weak_for_update = weak_window.clone();
+                            let agent_status_state_for_update =
+                                Arc::clone(&worker_agent_status_state);
+                            let catalogs_for_agent_status = Arc::clone(&worker_catalogs);
+                            let locale_for_agent_status = Arc::clone(&worker_locale);
 
                             if let Err(error) = slint::invoke_from_event_loop(move || {
                                 let Some(window) = weak_for_update.upgrade() else {
                                     return;
                                 };
 
-                                window.set_agent_connected(true);
-                                window.set_agent_startup_configured(startup_configured);
-                                window.set_agent_status(SharedString::from(agent_status));
+                                let locale = Locale::from_code(
+                                    locale_for_agent_status.load(Ordering::Acquire),
+                                );
+                                match agent_status_state_for_update.lock() {
+                                    Ok(state) => {
+                                        if let Some(state) = state.as_ref() {
+                                            apply_agent_status_state(
+                                                &window,
+                                                &catalogs_for_agent_status,
+                                                locale,
+                                                state,
+                                            );
+                                        }
+                                    }
+                                    Err(error) => {
+                                        warn!(%error, "agent status state is unavailable");
+                                    }
+                                }
                                 window.set_sample_age(SharedString::from(sample_age));
                                 window.set_cpu_value(SharedString::from(cpu_value));
                                 window.set_cpu_status(SharedString::from(cpu_status));
@@ -1034,7 +1195,9 @@ fn main() -> Result<()> {
                                 ));
                                 window.set_selected_process_key(selected_process_key);
                                 window.set_process_tree(ModelRc::new(VecModel::from(process_tree)));
-                                window.set_process_tree_status(SharedString::from(process_tree_status));
+                                window.set_process_tree_status(SharedString::from(
+                                    process_tree_status,
+                                ));
                                 if let Some(process) = selected_process {
                                     window.set_has_selected_process(true);
                                     window.set_selected_process_name(process.name);
@@ -1092,39 +1255,62 @@ fn main() -> Result<()> {
                         }
                     }
                     Err(error) => {
+                        let sample_age_state = SampleAgeState::NoRecentSample;
+                        worker_sample_age_state.store(sample_age_state.code(), Ordering::Release);
                         let ipc_error = format!("{error:#}");
-                        let agent_status = localize_agent_status(
-                            unavailable_status(&ipc_error, startup_mode, startup_error.as_deref()),
-                            locale,
-                        );
-                        let startup_configured = startup_mode.is_some() && startup_error.is_none();
+                        let agent_status_state = AgentStatusState::Unavailable {
+                            ipc_error,
+                            startup_mode,
+                            startup_error: startup_error.clone(),
+                        };
+                        match worker_agent_status_state.lock() {
+                            Ok(mut state) => *state = Some(agent_status_state),
+                            Err(error) => warn!(%error, "agent status state is unavailable"),
+                        }
                         let empty_volume_count =
                             worker_catalogs.format_count(CountKind::Volumes, 0, locale);
-                        let empty_network_interface_count = worker_catalogs.format_count(
-                            CountKind::NetworkInterfaces,
-                            0,
+                        let empty_network_interface_count =
+                            worker_catalogs.format_count(CountKind::NetworkInterfaces, 0, locale);
+                        let sample_age = sample_age_status_text(
+                            sample_age_state,
+                            worker_sample_captured_at.load(Ordering::Acquire),
+                            unix_time_ms(),
+                            &worker_catalogs,
                             locale,
                         );
+                        let catalogs_for_status = Arc::clone(&worker_catalogs);
+                        let agent_status_state_for_status = Arc::clone(&worker_agent_status_state);
+                        let locale_for_status = Arc::clone(&worker_locale);
                         let weak_for_status = weak_window.clone();
                         if let Err(invoke_error) = slint::invoke_from_event_loop(move || {
                             if let Some(window) = weak_for_status.upgrade() {
-                                window.set_agent_connected(false);
-                                window.set_agent_startup_configured(startup_configured);
-                                window.set_agent_status(SharedString::from(agent_status));
-                                window
-                                    .set_sample_age(SharedString::from(locale.no_recent_sample()));
+                                let locale =
+                                    Locale::from_code(locale_for_status.load(Ordering::Acquire));
+                                match agent_status_state_for_status.lock() {
+                                    Ok(state) => {
+                                        if let Some(state) = state.as_ref() {
+                                            apply_agent_status_state(
+                                                &window,
+                                                &catalogs_for_status,
+                                                locale,
+                                                state,
+                                            );
+                                        }
+                                    }
+                                    Err(error) => {
+                                        warn!(%error, "agent status state is unavailable");
+                                    }
+                                }
+                                window.set_sample_age(SharedString::from(sample_age));
+                                apply_agent_connection_status_texts(
+                                    &window,
+                                    &catalogs_for_status,
+                                    locale,
+                                    true,
+                                );
                                 window.set_cpu_value(SharedString::from("—"));
-                                window.set_cpu_status(SharedString::from(
-                                    locale.agent_disconnected(),
-                                ));
                                 window.set_memory_value(SharedString::from("—"));
                                 window.set_swap_value(SharedString::from("—"));
-                                window.set_memory_status(SharedString::from(
-                                    locale.agent_disconnected(),
-                                ));
-                                window.set_swap_status(SharedString::from(
-                                    locale.agent_disconnected(),
-                                ));
                                 window.set_process_count(SharedString::from("—"));
                                 window.set_process_count_description(SharedString::from("—"));
                                 window.set_process_count_detail(SharedString::from(""));
@@ -1133,29 +1319,16 @@ fn main() -> Result<()> {
                                 window.set_processes(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_volumes(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_volume_count(SharedString::from(empty_volume_count));
-                                window.set_volume_status(SharedString::from(
-                                    locale.waiting_for_agent(),
-                                ));
                                 window.set_network_interfaces(ModelRc::new(VecModel::from(
                                     Vec::new(),
                                 )));
                                 window.set_network_interface_count(SharedString::from(
                                     empty_network_interface_count,
                                 ));
-                                window.set_network_status(SharedString::from(
-                                    locale.waiting_for_agent(),
-                                ));
                                 window.set_block_devices(ModelRc::new(VecModel::from(Vec::new())));
-                                window.set_block_device_io_status(SharedString::from(
-                                    locale.waiting_for_agent(),
-                                ));
                                 window.set_cpu_cores(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_gpus(ModelRc::new(VecModel::from(Vec::new())));
-                                window.set_gpu_status(SharedString::from(locale.gpu_unavailable()));
                                 window.set_battery_value(SharedString::from("—"));
-                                window.set_battery_status(SharedString::from(
-                                    locale.battery_unavailable(),
-                                ));
                                 window.set_cpu_history(ModelRc::new(VecModel::from(Vec::new())));
                                 window.set_memory_history(ModelRc::new(VecModel::from(Vec::new())));
                             }
@@ -1240,6 +1413,7 @@ fn process_row(
     now_unix_ms: u64,
     locale: Locale,
     byte_unit_system: ByteUnitSystem,
+    catalogs: &UiCatalogs,
 ) -> ProcessRow {
     let (memory_value, memory_unit) =
         format_process_memory(process.memory_bytes, locale, byte_unit_system);
@@ -1257,6 +1431,7 @@ fn process_row(
             process.start_time_unix_seconds,
             now_unix_ms / 1_000,
             locale,
+            catalogs,
         )),
         cpu: SharedString::from(
             process
@@ -1274,7 +1449,7 @@ fn process_row(
     }
 }
 
-fn process_tree_rows(processes: &[ProcessMetrics]) -> Vec<ProcessTreeRow> {
+fn process_tree_rows(processes: &[ProcessMetrics], pid_label: &str) -> Vec<ProcessTreeRow> {
     let mut depths = std::collections::HashMap::<u32, i32>::with_capacity(processes.len());
     let mut rows = Vec::with_capacity(processes.len());
     for process in processes {
@@ -1285,7 +1460,7 @@ fn process_tree_rows(processes: &[ProcessMetrics]) -> Vec<ProcessTreeRow> {
             .unwrap_or(0);
         depths.insert(process.pid, depth);
         rows.push(ProcessTreeRow {
-            label: SharedString::from(format!("{} (PID {})", process.name, process.pid)),
+            label: SharedString::from(format!("{} ({pid_label} {})", process.name, process.pid)),
             depth,
         });
     }
@@ -1407,21 +1582,27 @@ fn process_start_age_label(
     start_time_unix_seconds: u64,
     now_unix_seconds: u64,
     locale: Locale,
+    catalogs: &UiCatalogs,
 ) -> String {
+    let telemetry_status = catalogs.telemetry_status_texts(locale);
     if start_time_unix_seconds == 0 {
-        return locale.unavailable().to_owned();
+        return telemetry_status.unavailable().to_owned();
     }
 
     let age_seconds = now_unix_seconds.saturating_sub(start_time_unix_seconds);
-    if age_seconds < 60 {
-        locale.relative_age(age_seconds, "sec", "s")
+    let (unit, amount) = if age_seconds < 60 {
+        (ProcessAgeUnit::Seconds, age_seconds)
     } else if age_seconds < 3_600 {
-        locale.relative_age(age_seconds / 60, "min", "min")
+        (ProcessAgeUnit::Minutes, age_seconds / 60)
     } else if age_seconds < 86_400 {
-        locale.relative_age(age_seconds / 3_600, "hr", "h")
+        (ProcessAgeUnit::Hours, age_seconds / 3_600)
     } else {
-        locale.relative_age(age_seconds / 86_400, "day", "d")
-    }
+        (ProcessAgeUnit::Days, age_seconds / 86_400)
+    };
+
+    catalogs
+        .process_age_texts(locale)
+        .label(unit, amount, locale)
 }
 
 fn clear_selected_process(window: &MainWindow) {
@@ -1516,6 +1697,7 @@ fn memory_summary(
     total_bytes: Option<u64>,
     locale: Locale,
     byte_unit_system: ByteUnitSystem,
+    telemetry_status: &TelemetryStatusTexts<'_>,
 ) -> (String, String) {
     match (used_bytes, total_bytes.filter(|total| *total > 0)) {
         (Some(used), Some(total)) => {
@@ -1531,10 +1713,13 @@ fn memory_summary(
                     locale.format_decimal(used_gib, 1),
                     locale.format_decimal(total_gib, 1)
                 ),
-                format!("{}% utilizado", locale.format_decimal(percentage, 1)),
+                telemetry_status.memory_used_percent(percentage, locale),
             )
         }
-        _ => ("—".to_owned(), "Indisponível nesta amostra".to_owned()),
+        _ => (
+            "—".to_owned(),
+            telemetry_status.unavailable_sample().to_owned(),
+        ),
     }
 }
 
@@ -1543,52 +1728,35 @@ fn swap_summary(
     total_bytes: Option<u64>,
     locale: Locale,
     byte_unit_system: ByteUnitSystem,
+    telemetry_status: &TelemetryStatusTexts<'_>,
 ) -> (String, String) {
     match (used_bytes, total_bytes) {
-        (Some(0), Some(0)) => ("Sem swap".to_owned(), "Nenhuma área configurada".to_owned()),
+        (Some(0), Some(0)) => (
+            telemetry_status.swap_none().to_owned(),
+            telemetry_status.swap_unconfigured().to_owned(),
+        ),
         (Some(used), Some(total)) if total > 0 => {
-            let (value, percentage) =
-                memory_summary(Some(used), Some(total), locale, byte_unit_system);
-            (value, format!("{percentage} · disponível"))
+            let (value, percentage) = memory_summary(
+                Some(used),
+                Some(total),
+                locale,
+                byte_unit_system,
+                telemetry_status,
+            );
+            (
+                value,
+                format!("{percentage} · {}", telemetry_status.swap_available()),
+            )
         }
-        _ => ("—".to_owned(), "Indisponível nesta amostra".to_owned()),
+        _ => (
+            "—".to_owned(),
+            telemetry_status.unavailable_sample().to_owned(),
+        ),
     }
 }
 
-fn metric_status_label(status: &str, locale: Locale) -> String {
-    match status {
-        "ok" => if locale == Locale::EnUs {
-            "Available"
-        } else {
-            "Disponível"
-        }
-        .to_owned(),
-        "warming_up" => if locale == Locale::EnUs {
-            "Warming up"
-        } else {
-            "Aquecendo"
-        }
-        .to_owned(),
-        "unsupported" => if locale == Locale::EnUs {
-            "Not supported"
-        } else {
-            "Não suportado"
-        }
-        .to_owned(),
-        "temporarily_unavailable" => if locale == Locale::EnUs {
-            "Temporarily unavailable"
-        } else {
-            "Temporariamente indisponível"
-        }
-        .to_owned(),
-        "error" => if locale == Locale::EnUs {
-            "Error"
-        } else {
-            "Erro"
-        }
-        .to_owned(),
-        other => other.to_owned(),
-    }
+fn metric_status_label(status: &str, catalogs: &UiCatalogs, locale: Locale) -> String {
+    catalogs.metric_status_texts(locale).label(status)
 }
 
 fn network_interface_kind_from_wire(kind: i32, protocol_minor: u32) -> NetworkInterfaceKind {
@@ -1602,20 +1770,32 @@ fn network_interface_kind_from_wire(kind: i32, protocol_minor: u32) -> NetworkIn
     }
 }
 
-fn network_interface_kind_label(kind: NetworkInterfaceKind, locale: Locale) -> &'static str {
+fn network_interface_kind_label(
+    kind: NetworkInterfaceKind,
+    catalogs: &UiCatalogs,
+    locale: Locale,
+) -> &str {
+    let network_texts = catalogs.network_texts(locale);
     match kind {
-        NetworkInterfaceKind::Loopback => "Loopback",
-        NetworkInterfaceKind::Unknown if locale == Locale::EnUs => "Unknown",
-        NetworkInterfaceKind::Unknown => "Desconhecido",
+        NetworkInterfaceKind::Loopback => network_texts.kind_loopback,
+        NetworkInterfaceKind::Unknown => network_texts.kind_unknown,
     }
 }
 
-fn gpu_status_label(protocol_minor: u32, gpu_count: usize, status: &str, locale: Locale) -> String {
+fn gpu_status_label(
+    protocol_minor: u32,
+    gpu_count: usize,
+    status: &str,
+    catalogs: &UiCatalogs,
+    locale: Locale,
+) -> String {
     if protocol_minor < GPU_METRICS_PROTOCOL_MINOR {
-        return locale.unsupported("GPU metrics").to_owned();
+        return catalogs
+            .capability_status_texts(locale)
+            .unsupported(UnsupportedCapability::GpuMetrics);
     }
     if gpu_count == 0 || status != "ok" {
-        return metric_status_label(status, locale);
+        return metric_status_label(status, catalogs, locale);
     }
 
     String::new()
@@ -1626,14 +1806,14 @@ fn select_history(
     interval_ms: u64,
     window_ms: u64,
     maximum_points: usize,
-) -> (Vec<f32>, String) {
+) -> (Vec<f32>, ChartHistoryRange) {
     if values.is_empty() {
-        return (Vec::new(), "sem dados".to_owned());
+        return (Vec::new(), ChartHistoryRange::NoData);
     }
     if interval_ms == 0 || window_ms == 0 {
         return (
             downsample_max(values, maximum_points),
-            "histórico".to_owned(),
+            ChartHistoryRange::History,
         );
     }
 
@@ -1642,9 +1822,9 @@ fn select_history(
     let first_sample = values.len().saturating_sub(sample_count);
     let selected = &values[first_sample..];
     let range_label = if values.len() < sample_count {
-        "início".to_owned()
+        ChartHistoryRange::Start
     } else {
-        format!("−{} min", window_ms.div_ceil(ONE_MINUTE_MS))
+        ChartHistoryRange::MinutesAgo(window_ms.div_ceil(ONE_MINUTE_MS))
     };
 
     (downsample_max(selected, maximum_points), range_label)
@@ -1672,88 +1852,32 @@ fn downsample_max(values: &[f32], maximum_points: usize) -> Vec<f32> {
     output
 }
 
-fn sample_age_label(captured_at_unix_ms: u64, now_unix_ms: u64, locale: Locale) -> String {
-    if captured_at_unix_ms == 0 {
-        return "Aguardando primeira amostra".to_owned();
-    }
+fn sample_age_status_text(
+    state: SampleAgeState,
+    captured_at_unix_ms: u64,
+    now_unix_ms: u64,
+    catalogs: &UiCatalogs,
+    locale: Locale,
+) -> String {
+    let age = match state {
+        SampleAgeState::WaitingForFirstSample => SampleAgeLabel::WaitingForFirstSample,
+        SampleAgeState::NoRecentSample => SampleAgeLabel::NoRecentSample,
+        SampleAgeState::SampleAvailable if captured_at_unix_ms == 0 => {
+            SampleAgeLabel::WaitingForFirstSample
+        }
+        SampleAgeState::SampleAvailable => {
+            let age_ms = now_unix_ms.saturating_sub(captured_at_unix_ms);
+            if age_ms < 1_000 {
+                SampleAgeLabel::LessThanSecond
+            } else if age_ms < ONE_MINUTE_MS {
+                SampleAgeLabel::SecondsAgo(age_ms / 1_000)
+            } else {
+                SampleAgeLabel::MinutesAgo(age_ms / ONE_MINUTE_MS)
+            }
+        }
+    };
 
-    let age_ms = now_unix_ms.saturating_sub(captured_at_unix_ms);
-    if age_ms < 1_000 {
-        "Amostra há menos de 1 s".to_owned()
-    } else if age_ms < 60_000 {
-        format!(
-            "Amostra há {} s",
-            locale.format_integer(u128::from(age_ms / 1_000))
-        )
-    } else {
-        format!(
-            "Amostra há {} min",
-            locale.format_integer(u128::from(age_ms / ONE_MINUTE_MS))
-        )
-    }
-}
-
-fn localized_sample_age(value: &str, locale: Locale) -> String {
-    if locale == Locale::PtBr {
-        return value.to_owned();
-    }
-    match value {
-        "Aguardando primeira amostra" => "Waiting for the first sample".to_owned(),
-        "Amostra há menos de 1 s" => "Sample less than 1 s ago".to_owned(),
-        value if value.starts_with("Amostra há ") => value
-            .strip_prefix("Amostra há ")
-            .map(|age| format!("Sample {age} ago"))
-            .unwrap_or_else(|| value.to_owned()),
-        _ => value.to_owned(),
-    }
-}
-
-fn localize_agent_status(value: String, locale: Locale) -> String {
-    if locale == Locale::PtBr {
-        return value;
-    }
-    let replacements = [
-        ("Agente ativo", "Agent active"),
-        ("Agente conectado", "Agent connected"),
-        ("Agente indisponível", "Agent unavailable"),
-        ("coleta:", "collection:"),
-        ("início no login:", "start at login:"),
-        (
-            "início automático não configurado:",
-            "automatic startup not configured:",
-        ),
-    ];
-    replacements
-        .into_iter()
-        .fold(value, |text, (from, to)| text.replace(from, to))
-}
-
-fn localize_summary(value: String, locale: Locale) -> String {
-    if locale == Locale::PtBr {
-        return value;
-    }
-    value
-        .replace("utilizado", "used")
-        .replace("Indisponível nesta amostra", "Unavailable in this sample")
-        .replace("disponível", "available")
-        .replace("Sem swap", "No swap")
-        .replace("Nenhuma área configurada", "No swap area configured")
-}
-
-fn localize_history_label(value: String, locale: Locale) -> String {
-    if locale == Locale::PtBr {
-        return value;
-    }
-    match value.as_str() {
-        "sem dados" => "no data".to_owned(),
-        "histórico" => "history".to_owned(),
-        "início" => "start".to_owned(),
-        value if value.starts_with('−') => value
-            .strip_prefix('−')
-            .map(|age| format!("{age} ago"))
-            .unwrap_or_else(|| value.to_owned()),
-        _ => value,
-    }
+    catalogs.sample_age_texts(locale).label(age, locale)
 }
 
 fn memory_status_description(
@@ -1761,59 +1885,27 @@ fn memory_status_description(
     memory_usage: &str,
     memory_status: &str,
     memory_sample_is_ok: bool,
-    locale: Locale,
 ) -> String {
-    let localized_memory_usage = localize_summary(memory_usage.to_owned(), locale);
     if memory_value != "—" {
-        return format!("{localized_memory_usage} · {memory_status}");
+        return format!("{memory_usage} · {memory_status}");
     }
 
     if memory_sample_is_ok {
-        localized_memory_usage
+        memory_usage.to_owned()
     } else {
         memory_status.to_owned()
     }
 }
 
-fn chart_accessible_summary(title: &str, values: &[f32], locale: Locale) -> String {
-    let mut finite_values = values.iter().copied().filter(|value| value.is_finite());
-    let Some(first_value) = finite_values.next() else {
-        return if locale == Locale::EnUs {
-            format!("{title} chart, waiting for samples")
-        } else {
-            format!("Gráfico de {title}, aguardando amostras")
-        };
-    };
-
-    let mut minimum = first_value;
-    let mut maximum = first_value;
-    let mut latest = first_value;
-    let mut sample_count = 1usize;
-    for value in finite_values {
-        minimum = minimum.min(value);
-        maximum = maximum.max(value);
-        latest = value;
-        sample_count += 1;
-    }
-
-    if locale == Locale::EnUs {
-        format!(
-            "{title} chart, {} samples, minimum {}%, maximum {}%, latest {}%",
-            locale.format_integer(sample_count as u128),
-            locale.format_decimal(f64::from(minimum), 1),
-            locale.format_decimal(f64::from(maximum), 1),
-            locale.format_decimal(f64::from(latest), 1)
-        )
-    } else {
-        let localized_title = if title == "CPU" { "CPU" } else { "memória" };
-        format!(
-            "Gráfico de {localized_title}, {} amostras, mínimo {}%, máximo {}%, atual {}%",
-            locale.format_integer(sample_count as u128),
-            locale.format_decimal(f64::from(minimum), 1),
-            locale.format_decimal(f64::from(maximum), 1),
-            locale.format_decimal(f64::from(latest), 1)
-        )
-    }
+fn chart_accessible_summary(
+    metric: ChartMetric,
+    values: &[f32],
+    catalogs: &UiCatalogs,
+    locale: Locale,
+) -> String {
+    catalogs
+        .charts_texts(locale)
+        .accessible_summary(metric, values, locale)
 }
 
 fn unix_time_ms() -> u64 {
@@ -1821,38 +1913,6 @@ fn unix_time_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
         .unwrap_or_default()
-}
-
-fn lifecycle_status(
-    collection_status: &str,
-    startup_mode: Option<StartupMode>,
-    startup_error: Option<&str>,
-) -> String {
-    match (startup_mode, startup_error) {
-        (Some(mode), None) => format!(
-            "Agente ativo · coleta: {collection_status} · início no login: {}",
-            mode.label()
-        ),
-        (_, Some(error)) => {
-            format!("Agente conectado · início automático não configurado: {error}")
-        }
-        (None, None) => format!("Agente conectado · coleta: {collection_status}"),
-    }
-}
-
-fn unavailable_status(
-    ipc_error: &str,
-    startup_mode: Option<StartupMode>,
-    startup_error: Option<&str>,
-) -> String {
-    match (startup_mode, startup_error) {
-        (_, Some(error)) => format!("Agente indisponível · {error} · IPC: {ipc_error}"),
-        (Some(mode), None) => format!(
-            "Agente indisponível · IPC: {ipc_error} · início no login: {}",
-            mode.label()
-        ),
-        (None, None) => format!("Agente indisponível · IPC: {ipc_error}"),
-    }
 }
 
 fn initialize_logging() {
@@ -1864,10 +1924,46 @@ fn apply_header_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: Locale
     let header_texts = catalogs.header_texts(locale);
     window.set_header_title(SharedString::from(header_texts.title));
     window.set_header_tagline(SharedString::from(header_texts.tagline));
+    window.set_header_language_pt_br_accessible_label(SharedString::from(
+        header_texts.language_pt_br_accessible,
+    ));
+    window.set_header_language_en_us_accessible_label(SharedString::from(
+        header_texts.language_en_us_accessible,
+    ));
+    window.set_header_language_pt_br_short_label(SharedString::from(
+        header_texts.language_pt_br_short,
+    ));
+    window.set_header_language_en_us_short_label(SharedString::from(
+        header_texts.language_en_us_short,
+    ));
     window.set_agent_active_label(SharedString::from(header_texts.agent_active));
     window.set_agent_unavailable_label(SharedString::from(header_texts.agent_unavailable));
     window.set_setup_startup_label(SharedString::from(header_texts.setup_startup));
     window.set_retry_connection_label(SharedString::from(header_texts.retry_connection));
+}
+
+fn apply_agent_status_state(
+    window: &MainWindow,
+    catalogs: &UiCatalogs,
+    locale: Locale,
+    state: &AgentStatusState,
+) {
+    window.set_agent_connected(state.connected());
+    window.set_agent_startup_configured(state.startup_configured());
+    window.set_agent_status(SharedString::from(state.text(catalogs, locale)));
+}
+
+fn apply_initial_metric_statuses(window: &MainWindow, catalogs: &UiCatalogs, locale: Locale) {
+    let waiting_status = sample_age_status_text(
+        SampleAgeState::WaitingForFirstSample,
+        0,
+        0,
+        catalogs,
+        locale,
+    );
+    window.set_cpu_status(SharedString::from(waiting_status.as_str()));
+    window.set_memory_status(SharedString::from(waiting_status.as_str()));
+    window.set_swap_status(SharedString::from(waiting_status));
 }
 
 fn apply_navigation_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: Locale) {
@@ -1924,6 +2020,81 @@ fn apply_performance_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: L
     window.set_performance_gpu_vram_label(SharedString::from(performance_texts.gpu_vram));
 }
 
+fn apply_chart_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: Locale) {
+    let chart_texts = catalogs.charts_texts(locale);
+    window.set_chart_now_label(SharedString::from(chart_texts.now));
+    window.set_chart_waiting_label(SharedString::from(chart_texts.waiting_for_samples));
+}
+
+fn apply_chart_history_labels(
+    window: &MainWindow,
+    catalogs: &UiCatalogs,
+    locale: Locale,
+    cpu_range: ChartHistoryRange,
+    memory_range: ChartHistoryRange,
+) {
+    let chart_texts = catalogs.charts_texts(locale);
+    window.set_cpu_history_start_label(SharedString::from(
+        chart_texts.history_range_label(cpu_range, locale),
+    ));
+    window.set_memory_history_start_label(SharedString::from(
+        chart_texts.history_range_label(memory_range, locale),
+    ));
+}
+
+fn apply_chart_ui_state(
+    window: &MainWindow,
+    catalogs: &UiCatalogs,
+    locale: Locale,
+    state: &ChartHistoryUiState,
+) {
+    apply_chart_history_labels(
+        window,
+        catalogs,
+        locale,
+        state.cpu_range,
+        state.memory_range,
+    );
+    window.set_cpu_history_accessible_summary(SharedString::from(chart_accessible_summary(
+        ChartMetric::Cpu,
+        &state.cpu_values,
+        catalogs,
+        locale,
+    )));
+    window.set_memory_history_accessible_summary(SharedString::from(chart_accessible_summary(
+        ChartMetric::Memory,
+        &state.memory_values,
+        catalogs,
+        locale,
+    )));
+}
+
+fn apply_storage_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: Locale) {
+    let storage_texts = catalogs.storage_texts(locale);
+    window.set_storage_units_label(SharedString::from(storage_texts.units));
+    window.set_storage_si_accessible_label(SharedString::from(storage_texts.si_accessible));
+    window.set_storage_iec_accessible_label(SharedString::from(storage_texts.iec_accessible));
+    window.set_storage_mount_point_label(SharedString::from(storage_texts.mount_point));
+    window.set_storage_read_label(SharedString::from(storage_texts.read));
+    window.set_storage_write_label(SharedString::from(storage_texts.write));
+    window.set_storage_file_system_label(SharedString::from(storage_texts.file_system));
+    window.set_storage_available_label(SharedString::from(storage_texts.available));
+    window.set_storage_total_label(SharedString::from(storage_texts.total));
+    window.set_storage_block_activity_label(SharedString::from(storage_texts.block_activity));
+    window.set_storage_device_label(SharedString::from(storage_texts.device));
+    window.set_storage_read_iops_label(SharedString::from(storage_texts.read_iops));
+    window.set_storage_write_iops_label(SharedString::from(storage_texts.write_iops));
+    window.set_storage_busy_label(SharedString::from(storage_texts.busy));
+}
+
+fn apply_network_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: Locale) {
+    let network_texts = catalogs.network_texts(locale);
+    window.set_network_interface_label(SharedString::from(network_texts.interface));
+    window.set_network_kind_label(SharedString::from(network_texts.kind));
+    window.set_network_received_label(SharedString::from(network_texts.received));
+    window.set_network_sent_label(SharedString::from(network_texts.sent));
+}
+
 fn apply_process_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: Locale) {
     let process_texts = catalogs.process_texts(locale);
     window.set_process_list_title_label(SharedString::from(process_texts.list_title));
@@ -1932,29 +2103,81 @@ fn apply_process_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: Local
         process_texts.filter_accessible_label,
     ));
     window.set_process_column_label(SharedString::from(process_texts.column_process));
+    window.set_process_pid_label(SharedString::from(process_texts.pid_label));
+    window.set_process_parent_pid_label(SharedString::from(process_texts.parent_pid_label));
+    window.set_process_cpu_label(SharedString::from(process_texts.cpu_label));
+    window.set_process_sort_unsorted_description(SharedString::from(
+        process_texts.sort_unsorted_description,
+    ));
+    window.set_process_sort_ascending_description(SharedString::from(
+        process_texts.sort_ascending_description,
+    ));
+    window.set_process_sort_descending_description(SharedString::from(
+        process_texts.sort_descending_description,
+    ));
     window.set_process_empty_filtered_label(SharedString::from(process_texts.empty_filtered));
     window
         .set_process_waiting_connection_label(SharedString::from(process_texts.waiting_connection));
+    window.set_process_started_label(SharedString::from(process_texts.started_label));
+    window.set_process_memory_label(SharedString::from(process_texts.memory_label));
+    window.set_process_memory_accessible_label(SharedString::from(
+        process_texts.memory_accessible_label,
+    ));
+    window.set_process_select_prompt_label(SharedString::from(process_texts.select_prompt));
+    window.set_process_tree_title_label(SharedString::from(process_texts.tree_title));
+}
+
+fn apply_agent_connection_status_texts(
+    window: &MainWindow,
+    catalogs: &UiCatalogs,
+    locale: Locale,
+    disconnected: bool,
+) {
+    let connection_status = catalogs.connection_status_texts(locale);
+    window.set_gpu_status(SharedString::from(connection_status.gpu_unavailable));
+    window.set_battery_status(SharedString::from(connection_status.battery_unavailable));
+    if disconnected {
+        window.set_cpu_status(SharedString::from(connection_status.agent_disconnected));
+        window.set_memory_status(SharedString::from(connection_status.agent_disconnected));
+        window.set_swap_status(SharedString::from(connection_status.agent_disconnected));
+    }
+    window.set_volume_status(SharedString::from(connection_status.waiting_for_agent));
+    window.set_network_status(SharedString::from(connection_status.waiting_for_agent));
+    window.set_block_device_io_status(SharedString::from(connection_status.waiting_for_agent));
+}
+
+fn process_tree_status_text(
+    catalogs: &UiCatalogs,
+    status: ProcessTreeStatus,
+    locale: Locale,
+) -> String {
+    catalogs
+        .process_texts(locale)
+        .tree_status(status)
+        .to_owned()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        ByteUnitSystem, CountKind, FIVE_MINUTES_MS, GpuRow, Locale, MAX_CHART_POINTS, MainPage,
-        MainWindow, NetworkInterfaceRow, ONE_MINUTE_MS, ProcessRow, ProcessSort, SortKey,
-        UiByteUnitSystem, UiCatalogs, UiDensity, UiLanguage, UiSettings,
-        apply_byte_unit_system_selection, apply_density_texts, apply_header_texts,
-        apply_navigation_texts, apply_overview_texts, apply_performance_texts, apply_process_texts,
-        chart_accessible_summary, compare_optional_cpu, downsample_max, find_selected_process,
-        format_bytes, format_bytes_per_second, format_gpu_clocks, format_latency_ms,
-        format_operations_per_second, format_process_memory, gpu_status_label, lifecycle_status,
-        localize_history_label, localized_sample_age, memory_percentage, memory_status_description,
-        memory_summary, metric_status_label, network_interface_kind_from_wire,
-        network_interface_kind_label, process_identity_key, process_row, process_start_age_label,
-        process_tree_rows, sample_age_label, select_history, sort_processes, swap_summary,
-        unavailable_status,
+        AgentStatusState, ByteUnitSystem, ChartHistoryRange, ChartHistoryUiState, ChartMetric,
+        CountKind, CpuCoreRow, EmptyDeviceCollection, FIVE_MINUTES_MS, GpuRow, Locale,
+        MAX_CHART_POINTS, MainPage, MainWindow, NetworkInterfaceRow, ONE_MINUTE_MS, ProcessRow,
+        ProcessSort, ProcessTreeStatus, SampleAgeState, SortKey, UiByteUnitSystem, UiCatalogs,
+        UiDensity, UiLanguage, UiSettings, UnsupportedCapability,
+        apply_agent_connection_status_texts, apply_agent_status_state,
+        apply_byte_unit_system_selection, apply_chart_texts, apply_chart_ui_state,
+        apply_density_texts, apply_header_texts, apply_initial_metric_statuses,
+        apply_navigation_texts, apply_network_texts, apply_overview_texts, apply_performance_texts,
+        apply_process_texts, apply_storage_texts, chart_accessible_summary, compare_optional_cpu,
+        downsample_max, find_selected_process, format_bytes, format_bytes_per_second,
+        format_gpu_clocks, format_latency_ms, format_operations_per_second, format_process_memory,
+        gpu_status_label, memory_percentage, memory_status_description, memory_summary,
+        metric_status_label, network_interface_kind_from_wire, network_interface_kind_label,
+        process_identity_key, process_row, process_start_age_label, process_tree_rows,
+        process_tree_status_text, sample_age_status_text, select_history, sort_processes,
+        swap_summary, unix_time_ms,
     };
-    use native_monitor_agent_lifecycle::StartupMode;
     use native_monitor_domain::NetworkInterfaceKind;
     use native_monitor_ipc::wire::{
         NetworkInterfaceKind as WireNetworkInterfaceKind, ProcessMetrics,
@@ -1962,7 +2185,7 @@ mod tests {
     use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static UI_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -1989,7 +2212,7 @@ mod tests {
         let (history, range_label) =
             select_history(&values, 250, FIVE_MINUTES_MS, MAX_CHART_POINTS);
 
-        assert_eq!(range_label, "−5 min");
+        assert_eq!(range_label, ChartHistoryRange::MinutesAgo(5));
         assert!(history.len() <= MAX_CHART_POINTS);
         assert_eq!(history[1], 1_000.0);
         assert_eq!(history[29], 2_000.0);
@@ -2012,9 +2235,9 @@ mod tests {
 
         assert_eq!(one_minute.len(), 60);
         assert_eq!(one_minute[0], 300.0);
-        assert_eq!(one_minute_label, "−1 min");
+        assert_eq!(one_minute_label, ChartHistoryRange::MinutesAgo(1));
         assert_eq!(five_minutes.len(), 100);
-        assert_eq!(five_minutes_label, "−5 min");
+        assert_eq!(five_minutes_label, ChartHistoryRange::MinutesAgo(5));
     }
 
     #[test]
@@ -2022,20 +2245,7 @@ mod tests {
         let (history, label) = select_history(&[12.0, 20.0], 1_000, FIVE_MINUTES_MS, 72);
 
         assert_eq!(history, vec![12.0, 20.0]);
-        assert_eq!(label, "início");
-        assert_eq!(localize_history_label(label, Locale::EnUs), "start");
-    }
-
-    #[test]
-    fn negative_history_labels_are_localized_without_panicking() {
-        assert_eq!(
-            localize_history_label("−1 min".to_owned(), Locale::EnUs),
-            "1 min ago"
-        );
-        assert_eq!(
-            localize_history_label("−5 min".to_owned(), Locale::EnUs),
-            "5 min ago"
-        );
+        assert_eq!(label, ChartHistoryRange::Start);
     }
 
     #[test]
@@ -2043,11 +2253,12 @@ mod tests {
         let (history, label) = select_history(&[], 1_000, FIVE_MINUTES_MS, 72);
 
         assert!(history.is_empty());
-        assert_eq!(localize_history_label(label, Locale::EnUs), "no data");
+        assert_eq!(label, ChartHistoryRange::NoData);
     }
 
     #[test]
     fn network_interface_kind_falls_back_and_localizes_labels() {
+        let catalogs = UiCatalogs::load().expect("load and validate both catalogs");
         assert_eq!(
             network_interface_kind_from_wire(WireNetworkInterfaceKind::Loopback as i32, 10),
             NetworkInterfaceKind::Loopback
@@ -2065,32 +2276,37 @@ mod tests {
             NetworkInterfaceKind::Unknown
         );
         assert_eq!(
-            network_interface_kind_label(NetworkInterfaceKind::Loopback, Locale::PtBr),
+            network_interface_kind_label(NetworkInterfaceKind::Loopback, &catalogs, Locale::PtBr),
             "Loopback"
         );
         assert_eq!(
-            network_interface_kind_label(NetworkInterfaceKind::Unknown, Locale::PtBr),
+            network_interface_kind_label(NetworkInterfaceKind::Unknown, &catalogs, Locale::PtBr),
             "Desconhecido"
         );
         assert_eq!(
-            network_interface_kind_label(NetworkInterfaceKind::Unknown, Locale::EnUs),
+            network_interface_kind_label(NetworkInterfaceKind::Unknown, &catalogs, Locale::EnUs),
             "Unknown"
+        );
+        assert_eq!(
+            network_interface_kind_label(NetworkInterfaceKind::Loopback, &catalogs, Locale::EnUs),
+            "Loopback"
         );
     }
 
     #[test]
     fn gpu_status_remains_visible_when_only_some_device_metrics_are_available() {
+        let catalogs = UiCatalogs::load().expect("load UI catalogs");
         assert_eq!(
-            gpu_status_label(7, 1, "temporarily_unavailable", Locale::EnUs),
+            gpu_status_label(7, 1, "temporarily_unavailable", &catalogs, Locale::EnUs,),
             "Temporarily unavailable"
         );
-        assert_eq!(gpu_status_label(7, 1, "ok", Locale::EnUs), "");
+        assert_eq!(gpu_status_label(7, 1, "ok", &catalogs, Locale::EnUs), "");
         assert_eq!(
-            gpu_status_label(7, 0, "unsupported", Locale::PtBr),
+            gpu_status_label(7, 0, "unsupported", &catalogs, Locale::PtBr),
             "Não suportado"
         );
         assert_eq!(
-            gpu_status_label(6, 1, "ok", Locale::EnUs),
+            gpu_status_label(6, 1, "ok", &catalogs, Locale::EnUs),
             "Agent does not support GPU metrics in this version"
         );
     }
@@ -2128,37 +2344,44 @@ mod tests {
 
     #[test]
     fn chart_accessible_summary_reports_range_latest_and_ignores_non_finite_samples() {
+        let catalogs = UiCatalogs::load().expect("load and validate both catalogs");
         let samples = [10.0, f32::NAN, 35.5, 20.0, f32::INFINITY];
 
         assert_eq!(
-            chart_accessible_summary("CPU", &samples, Locale::EnUs),
+            chart_accessible_summary(ChartMetric::Cpu, &samples, &catalogs, Locale::EnUs),
             "CPU chart, 3 samples, minimum 10.0%, maximum 35.5%, latest 20.0%"
         );
         assert_eq!(
-            chart_accessible_summary("CPU", &[], Locale::PtBr),
+            chart_accessible_summary(ChartMetric::Cpu, &[], &catalogs, Locale::PtBr),
             "Gráfico de CPU, aguardando amostras"
         );
         assert_eq!(
-            chart_accessible_summary("memory", &[20.0, 40.0], Locale::PtBr),
+            chart_accessible_summary(ChartMetric::Memory, &[20.0, 40.0], &catalogs, Locale::PtBr,),
             "Gráfico de memória, 2 amostras, mínimo 20,0%, máximo 40,0%, atual 40,0%"
         );
         let many_samples = vec![25.0; 1_234];
         assert!(
-            chart_accessible_summary("CPU", &many_samples, Locale::PtBr).contains("1.234 amostras")
+            chart_accessible_summary(ChartMetric::Cpu, &many_samples, &catalogs, Locale::PtBr,)
+                .contains("1.234 amostras")
         );
         assert!(
-            chart_accessible_summary("CPU", &many_samples, Locale::EnUs).contains("1,234 samples")
+            chart_accessible_summary(ChartMetric::Cpu, &many_samples, &catalogs, Locale::EnUs,)
+                .contains("1,234 samples")
         );
     }
 
     #[test]
     fn memory_summary_does_not_invent_missing_values() {
+        let catalogs = UiCatalogs::load().expect("load and validate both catalogs");
+        let portuguese_status = catalogs.telemetry_status_texts(Locale::PtBr);
+        let english_status = catalogs.telemetry_status_texts(Locale::EnUs);
         assert_eq!(
             memory_summary(
                 None,
                 Some(8 * 1024 * 1024 * 1024),
                 Locale::PtBr,
                 ByteUnitSystem::Iec,
+                &portuguese_status,
             ),
             ("—".to_owned(), "Indisponível nesta amostra".to_owned())
         );
@@ -2168,6 +2391,7 @@ mod tests {
                 Some(8 * 1024 * 1024 * 1024),
                 Locale::PtBr,
                 ByteUnitSystem::Iec,
+                &portuguese_status,
             ),
             ("4,0 / 8,0 GiB".to_owned(), "50,0% utilizado".to_owned())
         );
@@ -2177,6 +2401,7 @@ mod tests {
                 Some(8 * 1024 * 1024 * 1024),
                 Locale::EnUs,
                 ByteUnitSystem::Iec,
+                &english_status,
             )
             .0,
             "4.0 / 8.0 GiB"
@@ -2187,51 +2412,28 @@ mod tests {
                 Some(8 * 1024 * 1024 * 1024),
                 Locale::PtBr,
                 ByteUnitSystem::Si,
+                &portuguese_status,
             ),
             ("4,3 / 8,6 GB".to_owned(), "50,0% utilizado".to_owned())
         );
     }
 
     #[test]
-    fn memory_status_description_localizes_summaries_and_preserves_missing_states() {
+    fn memory_status_description_preserves_localized_summaries_and_missing_states() {
         assert_eq!(
-            memory_status_description(
-                "4.0 / 8.0 GiB",
-                "50.0% utilizado",
-                "Available",
-                true,
-                Locale::EnUs,
-            ),
+            memory_status_description("4.0 / 8.0 GiB", "50.0% used", "Available", true,),
             "50.0% used · Available"
         );
         assert_eq!(
-            memory_status_description(
-                "4,0 / 8,0 GiB",
-                "50,0% utilizado",
-                "Disponível",
-                true,
-                Locale::PtBr,
-            ),
+            memory_status_description("4,0 / 8,0 GiB", "50,0% utilizado", "Disponível", true,),
             "50,0% utilizado · Disponível"
         );
         assert_eq!(
-            memory_status_description(
-                "—",
-                "Indisponível nesta amostra",
-                "Unavailable",
-                false,
-                Locale::EnUs,
-            ),
+            memory_status_description("—", "Unavailable in this sample", "Unavailable", false,),
             "Unavailable"
         );
         assert_eq!(
-            memory_status_description(
-                "—",
-                "Indisponível nesta amostra",
-                "Available",
-                true,
-                Locale::EnUs,
-            ),
+            memory_status_description("—", "Unavailable in this sample", "Available", true,),
             "Unavailable in this sample"
         );
     }
@@ -2324,12 +2526,27 @@ mod tests {
 
     #[test]
     fn swap_summary_distinguishes_missing_from_unconfigured_swap() {
+        let catalogs = UiCatalogs::load().expect("load and validate both catalogs");
+        let portuguese_status = catalogs.telemetry_status_texts(Locale::PtBr);
+        let english_status = catalogs.telemetry_status_texts(Locale::EnUs);
         assert_eq!(
-            swap_summary(Some(0), Some(0), Locale::PtBr, ByteUnitSystem::Iec),
+            swap_summary(
+                Some(0),
+                Some(0),
+                Locale::PtBr,
+                ByteUnitSystem::Iec,
+                &portuguese_status,
+            ),
             ("Sem swap".to_owned(), "Nenhuma área configurada".to_owned())
         );
         assert_eq!(
-            swap_summary(None, None, Locale::PtBr, ByteUnitSystem::Iec),
+            swap_summary(
+                None,
+                None,
+                Locale::PtBr,
+                ByteUnitSystem::Iec,
+                &portuguese_status,
+            ),
             ("—".to_owned(), "Indisponível nesta amostra".to_owned())
         );
         assert_eq!(
@@ -2338,6 +2555,7 @@ mod tests {
                 Some(2_147_483_648),
                 Locale::PtBr,
                 ByteUnitSystem::Iec,
+                &portuguese_status,
             ),
             (
                 "1,0 / 2,0 GiB".to_owned(),
@@ -2350,21 +2568,32 @@ mod tests {
                 Some(3_000_000_000),
                 Locale::EnUs,
                 ByteUnitSystem::Si,
+                &english_status,
             ),
             (
                 "1.5 / 3.0 GB".to_owned(),
-                "50.0% utilizado · disponível".to_owned()
+                "50.0% used · available".to_owned()
             )
         );
     }
 
     #[test]
     fn metric_status_is_localized_for_overview_cards() {
-        assert_eq!(metric_status_label("ok", Locale::PtBr), "Disponível");
-        assert_eq!(metric_status_label("ok", Locale::EnUs), "Available");
-        assert_eq!(metric_status_label("warming_up", Locale::PtBr), "Aquecendo");
+        let catalogs = UiCatalogs::load().expect("load UI catalogs");
         assert_eq!(
-            metric_status_label("unexpected", Locale::EnUs),
+            metric_status_label("ok", &catalogs, Locale::PtBr),
+            "Disponível"
+        );
+        assert_eq!(
+            metric_status_label("ok", &catalogs, Locale::EnUs),
+            "Available"
+        );
+        assert_eq!(
+            metric_status_label("warming_up", &catalogs, Locale::PtBr),
+            "Aquecendo"
+        );
+        assert_eq!(
+            metric_status_label("unexpected", &catalogs, Locale::EnUs),
             "unexpected"
         );
     }
@@ -2433,6 +2662,7 @@ mod tests {
             Some(9_876),
         );
         let total_memory = Some(8 * 1024 * 1024);
+        let catalogs = UiCatalogs::load().expect("load and validate both catalogs");
 
         let portuguese = process_row(
             &sample,
@@ -2440,6 +2670,7 @@ mod tests {
             10_000,
             Locale::PtBr,
             ByteUnitSystem::Iec,
+            &catalogs,
         );
         assert_eq!(portuguese.cpu.as_str(), "12,3");
         assert_eq!(portuguese.memory.as_str(), "4,0");
@@ -2454,6 +2685,7 @@ mod tests {
             10_000,
             Locale::EnUs,
             ByteUnitSystem::Iec,
+            &catalogs,
         );
         assert_eq!(english.cpu.as_str(), "12.3");
         assert_eq!(english.memory.as_str(), "4.0");
@@ -2467,26 +2699,33 @@ mod tests {
             10_000,
             Locale::PtBr,
             ByteUnitSystem::Si,
+            &catalogs,
         );
         assert_eq!(si.memory.as_str(), "4,2");
         assert_eq!(si.memory_unit.as_str(), "MB");
     }
 
     #[test]
-    fn process_tree_rows_preserve_breadth_first_order_and_depth() {
-        let rows = process_tree_rows(&[
+    fn process_tree_rows_preserve_order_depth_and_catalog_pid_label() {
+        let catalogs = UiCatalogs::load().expect("load and validate both catalogs");
+        let processes = [
             process(10, "root", Some(1.0), 10, None),
             process(11, "child", Some(2.0), 20, Some(10)),
             process(12, "grandchild", Some(3.0), 30, Some(11)),
             process(13, "sibling", Some(4.0), 40, Some(10)),
-        ]);
+        ];
 
-        assert_eq!(rows.len(), 4);
-        assert_eq!(rows[0].label.as_str(), "root (PID 10)");
-        assert_eq!(rows[0].depth, 0);
-        assert_eq!(rows[1].depth, 1);
-        assert_eq!(rows[2].depth, 2);
-        assert_eq!(rows[3].depth, 1);
+        for locale in [Locale::PtBr, Locale::EnUs] {
+            let pid_label = catalogs.process_texts(locale).pid_label;
+            let rows = process_tree_rows(&processes, pid_label);
+
+            assert_eq!(rows.len(), 4);
+            assert_eq!(rows[0].label.as_str(), "root (PID 10)");
+            assert_eq!(rows[0].depth, 0);
+            assert_eq!(rows[1].depth, 1);
+            assert_eq!(rows[2].depth, 2);
+            assert_eq!(rows[3].depth, 1);
+        }
     }
 
     #[test]
@@ -2512,14 +2751,136 @@ mod tests {
         slint::spawn_local(async move {
             let window = MainWindow::new().expect("create the test window");
             let ui_catalogs = Arc::new(UiCatalogs::load().expect("load UI catalogs"));
+            for (locale, language, expected) in [
+                (
+                    Locale::PtBr,
+                    UiLanguage::PtBr,
+                    "Aguardando primeira amostra",
+                ),
+                (
+                    Locale::EnUs,
+                    UiLanguage::EnUs,
+                    "Waiting for the first sample",
+                ),
+                (
+                    Locale::PtBr,
+                    UiLanguage::PtBr,
+                    "Aguardando primeira amostra",
+                ),
+            ] {
+                window.set_language(language);
+                apply_initial_metric_statuses(&window, &ui_catalogs, locale);
+
+                for status in [
+                    window.get_cpu_status(),
+                    window.get_memory_status(),
+                    window.get_swap_status(),
+                ] {
+                    assert_eq!(status.as_str(), expected);
+                }
+            }
+            window.set_language(UiLanguage::PtBr);
+            let sample_age_state_for_locale =
+                Arc::new(AtomicU8::new(SampleAgeState::SampleAvailable.code()));
+            let sample_captured_at_for_locale =
+                Arc::new(AtomicU64::new(unix_time_ms().saturating_sub(74_040_000)));
             apply_header_texts(&window, &ui_catalogs, Locale::PtBr);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Português (Brasil)")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "English (United States)")
+                    .next()
+                    .is_some()
+            );
+            window.set_sample_age(SharedString::from(sample_age_status_text(
+                SampleAgeState::SampleAvailable,
+                sample_captured_at_for_locale.load(Ordering::Acquire),
+                unix_time_ms(),
+                &ui_catalogs,
+                Locale::PtBr,
+            )));
             apply_navigation_texts(&window, &ui_catalogs, Locale::PtBr);
             apply_density_texts(&window, &ui_catalogs, Locale::PtBr);
             apply_overview_texts(&window, &ui_catalogs, Locale::PtBr);
             apply_performance_texts(&window, &ui_catalogs, Locale::PtBr);
+            apply_chart_texts(&window, &ui_catalogs, Locale::PtBr);
+            let chart_history_ui_state = Arc::new(Mutex::new(ChartHistoryUiState {
+                cpu_range: ChartHistoryRange::Start,
+                memory_range: ChartHistoryRange::Start,
+                cpu_values: vec![12.0, 28.0],
+                memory_values: vec![20.0, 40.0],
+            }));
+            apply_chart_ui_state(
+                &window,
+                &ui_catalogs,
+                Locale::PtBr,
+                &chart_history_ui_state
+                    .lock()
+                    .expect("lock chart history UI state"),
+            );
+            apply_storage_texts(&window, &ui_catalogs, Locale::PtBr);
+            apply_network_texts(&window, &ui_catalogs, Locale::PtBr);
             apply_process_texts(&window, &ui_catalogs, Locale::PtBr);
+            window.set_language(UiLanguage::PtBr);
+            let agent_status_state = Arc::new(Mutex::new(Some(AgentStatusState::Unavailable {
+                ipc_error: "socket not found".to_owned(),
+                startup_mode: None,
+                startup_error: None,
+            })));
+            apply_agent_status_state(
+                &window,
+                &ui_catalogs,
+                Locale::PtBr,
+                agent_status_state
+                    .lock()
+                    .expect("lock agent status state")
+                    .as_ref()
+                    .expect("agent status state is initialized"),
+            );
+            let portuguese_telemetry_status = ui_catalogs.telemetry_status_texts(Locale::PtBr);
+            window.set_memory_status(SharedString::from(
+                portuguese_telemetry_status.unavailable(),
+            ));
+            window.set_swap_status(SharedString::from(
+                portuguese_telemetry_status.unavailable_sample(),
+            ));
+            window.set_cpu_status(SharedString::from(metric_status_label(
+                "warming_up",
+                &ui_catalogs,
+                Locale::PtBr,
+            )));
+            let portuguese_capability_statuses = ui_catalogs.capability_status_texts(Locale::PtBr);
+            window.set_gpu_status(SharedString::from(gpu_status_label(
+                0,
+                0,
+                "ok",
+                &ui_catalogs,
+                Locale::PtBr,
+            )));
+            window.set_battery_status(SharedString::from(
+                portuguese_capability_statuses.unsupported(UnsupportedCapability::BatteryMetrics),
+            ));
+            window.set_volume_status(SharedString::from(
+                portuguese_capability_statuses.unsupported(UnsupportedCapability::MountedVolumes),
+            ));
+            window.set_network_status(SharedString::from(
+                portuguese_capability_statuses
+                    .none_available(EmptyDeviceCollection::NetworkInterfaces),
+            ));
+            window.set_block_device_io_status(SharedString::from(
+                portuguese_capability_statuses.unsupported(UnsupportedCapability::BlockDeviceIo),
+            ));
+            let tree_status_for_locale = Arc::new(AtomicU8::new(ProcessTreeStatus::None.code()));
             let weak_window = window.as_weak();
             let catalogs_for_locale = Arc::clone(&ui_catalogs);
+            let sample_age_state_for_locale_callback = Arc::clone(&sample_age_state_for_locale);
+            let sample_captured_at_for_locale_callback = Arc::clone(&sample_captured_at_for_locale);
+            let chart_ui_state_for_locale = Arc::clone(&chart_history_ui_state);
+            let agent_status_for_locale = Arc::clone(&agent_status_state);
+            let tree_status_callback = Arc::clone(&tree_status_for_locale);
             window.on_language_selected(move |value| {
                 if let Some(locale) = Locale::from_selection(value.as_str())
                     && let Some(window) = weak_window.upgrade()
@@ -2530,12 +2891,91 @@ mod tests {
                     apply_density_texts(&window, &catalogs_for_locale, locale);
                     apply_overview_texts(&window, &catalogs_for_locale, locale);
                     apply_performance_texts(&window, &catalogs_for_locale, locale);
+                    apply_chart_texts(&window, &catalogs_for_locale, locale);
+                    match chart_ui_state_for_locale.lock() {
+                        Ok(state) => {
+                            apply_chart_ui_state(&window, &catalogs_for_locale, locale, &state)
+                        }
+                        Err(error) => panic!("chart history UI state lock poisoned: {error}"),
+                    }
+                    match agent_status_for_locale.lock() {
+                        Ok(state) => {
+                            if let Some(state) = state.as_ref() {
+                                apply_agent_status_state(
+                                    &window,
+                                    &catalogs_for_locale,
+                                    locale,
+                                    state,
+                                );
+                            }
+                        }
+                        Err(error) => panic!("agent status state lock poisoned: {error}"),
+                    }
+                    apply_storage_texts(&window, &catalogs_for_locale, locale);
+                    apply_network_texts(&window, &catalogs_for_locale, locale);
                     apply_process_texts(&window, &catalogs_for_locale, locale);
+                    let telemetry_status = catalogs_for_locale.telemetry_status_texts(locale);
+                    window.set_memory_status(SharedString::from(telemetry_status.unavailable()));
+                    window
+                        .set_swap_status(SharedString::from(telemetry_status.unavailable_sample()));
+                    let sample_age_state = SampleAgeState::from_code(
+                        sample_age_state_for_locale_callback.load(Ordering::Acquire),
+                    );
+                    window.set_sample_age(SharedString::from(sample_age_status_text(
+                        sample_age_state,
+                        sample_captured_at_for_locale_callback.load(Ordering::Acquire),
+                        unix_time_ms(),
+                        &catalogs_for_locale,
+                        locale,
+                    )));
+                    window.set_cpu_status(SharedString::from(metric_status_label(
+                        "warming_up",
+                        &catalogs_for_locale,
+                        locale,
+                    )));
+                    let capability_statuses = catalogs_for_locale.capability_status_texts(locale);
+                    window.set_gpu_status(SharedString::from(gpu_status_label(
+                        0,
+                        0,
+                        "ok",
+                        &catalogs_for_locale,
+                        locale,
+                    )));
+                    window.set_battery_status(SharedString::from(
+                        capability_statuses.unsupported(UnsupportedCapability::BatteryMetrics),
+                    ));
+                    window.set_volume_status(SharedString::from(
+                        capability_statuses.unsupported(UnsupportedCapability::MountedVolumes),
+                    ));
+                    window.set_network_status(SharedString::from(
+                        capability_statuses
+                            .none_available(EmptyDeviceCollection::NetworkInterfaces)
+                            .to_owned(),
+                    ));
+                    window.set_block_device_io_status(SharedString::from(
+                        capability_statuses.unsupported(UnsupportedCapability::BlockDeviceIo),
+                    ));
+                    if !window.get_agent_connected()
+                        && sample_age_state == SampleAgeState::NoRecentSample
+                    {
+                        apply_agent_connection_status_texts(
+                            &window,
+                            &catalogs_for_locale,
+                            locale,
+                            true,
+                        );
+                    }
+                    let tree_status =
+                        ProcessTreeStatus::from_code(tree_status_callback.load(Ordering::Acquire));
+                    window.set_process_tree_status(SharedString::from(process_tree_status_text(
+                        &catalogs_for_locale,
+                        tree_status,
+                        locale,
+                    )));
                 }
             });
             let expected_chart_summary =
                 "Gráfico de CPU, 2 amostras, mínimo 12,0%, máximo 28,0%, atual 28,0%";
-            window.set_cpu_history_accessible_summary(SharedString::from(expected_chart_summary));
             let mut ptbr_swap_panels =
                 ElementHandle::find_by_accessible_label(&window, "Memória swap");
             assert!(ptbr_swap_panels.next().is_some());
@@ -2552,6 +2992,34 @@ mod tests {
                     .expect("the chart exposes an accessible summary")
                     .as_str(),
                 expected_chart_summary
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Gráfico de memória, 2 amostras, mínimo 20,0%, máximo 40,0%, atual 40,0%"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agente indisponível · IPC: socket not found"
+                )
+                .next()
+                .is_some()
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "agora").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "Aguardando amostras").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "início").count(),
+                2
             );
 
             let mut overview_tabs = ElementHandle::find_by_accessible_label(&window, "Visão geral");
@@ -2628,6 +3096,16 @@ mod tests {
                     "missing Portuguese overview label {label}"
                 );
             }
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Aquecendo")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Amostra há 1.234 min")
+                    .next()
+                    .is_some()
+            );
 
             let mut english_selectors =
                 ElementHandle::find_by_element_id(&window, "MainWindow::language_en_us");
@@ -2636,12 +3114,78 @@ mod tests {
                 .expect("find English selector")
                 .single_click(PointerEventButton::Left)
                 .await;
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Português (Brasil)")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "English (United States)")
+                    .next()
+                    .is_some()
+            );
             let mut english_header_titles =
                 ElementHandle::find_by_accessible_label(&window, "System Monitor");
             assert!(english_header_titles.next().is_some());
             let mut english_header_actions =
                 ElementHandle::find_by_accessible_label(&window, "Retry connection");
             assert!(english_header_actions.next().is_some());
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Warming up")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Sample 1,234 min ago")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "CPU chart, 2 samples, minimum 12.0%, maximum 28.0%, latest 28.0%"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "memory chart, 2 samples, minimum 20.0%, maximum 40.0%, latest 40.0%"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agent unavailable · IPC: socket not found"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Unavailable")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Unavailable in this sample")
+                    .next()
+                    .is_some()
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "now").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "Waiting for samples").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "start").count(),
+                2
+            );
             for label in [
                 "Live updates",
                 "Total CPU",
@@ -2656,7 +3200,35 @@ mod tests {
                     "missing English overview label {label}"
                 );
             }
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agent does not support battery metrics in this version"
+                )
+                .next()
+                .is_some()
+            );
             window.set_active_page(MainPage::Performance);
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agent does not support GPU metrics in this version"
+                )
+                .next()
+                .is_some()
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "now").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "Waiting for samples").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "start").count(),
+                2
+            );
             for label in [
                 "1 minute",
                 "5 minutes",
@@ -2671,8 +3243,26 @@ mod tests {
                     "missing English performance label {label}"
                 );
             }
+            let english_telemetry_status = ui_catalogs.telemetry_status_texts(Locale::EnUs);
+            window.set_cpu_cores(ModelRc::new(VecModel::from(vec![CpuCoreRow {
+                name: SharedString::from(english_telemetry_status.core_name(1_234, Locale::EnUs)),
+                usage: SharedString::from("12.3%"),
+                fraction: 0.123,
+            }])));
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Core 1,234")
+                    .next()
+                    .is_some()
+            );
             window.set_active_page(MainPage::Processes);
-            for label in ["Process list", "Filter processes by name or PID", "Process"] {
+            for label in [
+                "Process list",
+                "Filter processes by name or PID",
+                "Process",
+                "PID",
+                "PPID",
+                "CPU %",
+            ] {
                 let mut process_page_labels =
                     ElementHandle::find_by_accessible_label(&window, label);
                 assert!(
@@ -2680,6 +3270,37 @@ mod tests {
                     "missing English process-page label {label}"
                 );
             }
+            let mut english_process_headers =
+                ElementHandle::find_by_accessible_label(&window, "Process");
+            let english_process_header = english_process_headers
+                .next()
+                .expect("find the English process sort header");
+            assert_eq!(
+                english_process_header
+                    .accessible_description()
+                    .expect("unsorted English description is accessible")
+                    .as_str(),
+                "Not sorted by this column"
+            );
+            window.set_sort_key(SharedString::from("name"));
+            window.set_sort_descending(false);
+            assert_eq!(
+                english_process_header
+                    .accessible_description()
+                    .expect("ascending English description is accessible")
+                    .as_str(),
+                "Sorted ascending"
+            );
+            window.set_sort_descending(true);
+            assert_eq!(
+                english_process_header
+                    .accessible_description()
+                    .expect("descending English description is accessible")
+                    .as_str(),
+                "Sorted descending"
+            );
+            window.set_sort_key(SharedString::from("cpu"));
+            window.set_sort_descending(true);
             let mut english_filter_fields =
                 ElementHandle::find_by_accessible_label(&window, "Filter processes by name or PID");
             assert_eq!(
@@ -2693,6 +3314,14 @@ mod tests {
             );
             window.set_processes(ModelRc::new(VecModel::from(Vec::new())));
             window.set_agent_connected(false);
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Select a process to view its PID, start time, and usage."
+                )
+                .next()
+                .is_some()
+            );
             let mut english_waiting_messages =
                 ElementHandle::find_by_accessible_label(&window, "Waiting for agent connection…");
             assert!(english_waiting_messages.next().is_some());
@@ -2752,6 +3381,83 @@ mod tests {
                     "the English {label} title must appear in navigation and page content"
                 );
             }
+            window.set_active_page(MainPage::Storage);
+            for label in [
+                "Units",
+                "Mount point",
+                "Read",
+                "Write",
+                "File system",
+                "Available",
+                "Total",
+                "Block device activity (Linux)",
+                "Device",
+                "Read IOPS",
+                "Write IOPS",
+                "Busy",
+            ] {
+                assert!(
+                    ElementHandle::find_by_accessible_label(&window, label)
+                        .next()
+                        .is_some(),
+                    "missing English storage label {label}"
+                );
+            }
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agent does not support mounted volumes in this version"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agent does not support block device I/O in this version"
+                )
+                .next()
+                .is_some()
+            );
+            let mut english_si_choice =
+                ElementHandle::find_by_element_id(&window, "MainWindow::byte_units_si");
+            assert_eq!(
+                english_si_choice
+                    .next()
+                    .expect("find the English SI selector")
+                    .accessible_label()
+                    .expect("SI selector has an accessible label")
+                    .as_str(),
+                "SI decimal units"
+            );
+            let mut english_iec_choice =
+                ElementHandle::find_by_element_id(&window, "MainWindow::byte_units_iec");
+            assert_eq!(
+                english_iec_choice
+                    .next()
+                    .expect("find the English IEC selector")
+                    .accessible_label()
+                    .expect("IEC selector has an accessible label")
+                    .as_str(),
+                "IEC binary units"
+            );
+            window.set_active_page(MainPage::Network);
+            for label in ["Interface", "Type", "Received", "Sent"] {
+                assert!(
+                    ElementHandle::find_by_accessible_label(&window, label)
+                        .next()
+                        .is_some(),
+                    "missing English network label {label}"
+                );
+            }
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "No network interfaces available."
+                )
+                .next()
+                .is_some()
+            );
             window.set_active_page(MainPage::Overview);
             let mut english_shortcuts = ElementHandle::find_by_accessible_label(
                 &window,
@@ -2760,6 +3466,58 @@ mod tests {
             assert!(english_shortcuts.next().is_some());
             let mut english_swap_panels = ElementHandle::find_by_accessible_label(&window, "Swap");
             assert!(english_swap_panels.next().is_some());
+
+            window.set_active_page(MainPage::Processes);
+            window.set_has_selected_process(true);
+            window.set_selected_process_name(SharedString::from("process-fixture"));
+            window.set_selected_process_pid(SharedString::from("42"));
+            window.set_selected_process_parent_pid(SharedString::from("7"));
+            window.set_selected_process_started(SharedString::from(process_start_age_label(
+                940,
+                1_000,
+                Locale::EnUs,
+                &ui_catalogs,
+            )));
+            window.set_selected_process_cpu(SharedString::from("1.5%"));
+            window.set_selected_process_memory(SharedString::from("3.0"));
+            window.set_selected_process_memory_unit(SharedString::from("MiB"));
+            window.set_selected_process_memory_percent(SharedString::from("2.0%"));
+            let tree_status = ProcessTreeStatus::Truncated;
+            tree_status_for_locale.store(tree_status.code(), Ordering::Release);
+            window.set_process_tree_status(SharedString::from(process_tree_status_text(
+                &ui_catalogs,
+                tree_status,
+                Locale::EnUs,
+            )));
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "process-fixture · PID 42 · PPID 7"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Started: 1 min ago · CPU 1.5% · Memory 3.0 MiB (2.0%)"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Process tree (read-only)")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Tree truncated at the response limit."
+                )
+                .next()
+                .is_some()
+            );
 
             let mut portuguese_selectors =
                 ElementHandle::find_by_element_id(&window, "MainWindow::language_pt_br");
@@ -2774,7 +3532,270 @@ mod tests {
             let mut portuguese_header_actions =
                 ElementHandle::find_by_accessible_label(&window, "Tentar conexão");
             assert!(portuguese_header_actions.next().is_some());
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agente indisponível · IPC: socket not found"
+                )
+                .next()
+                .is_some()
+            );
+            window.set_active_page(MainPage::Overview);
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Gráfico de CPU, 2 amostras, mínimo 12,0%, máximo 28,0%, atual 28,0%"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Gráfico de memória, 2 amostras, mínimo 20,0%, máximo 40,0%, atual 40,0%"
+                )
+                .next()
+                .is_some()
+            );
+            window.set_active_page(MainPage::Processes);
+            let mut portuguese_process_headers =
+                ElementHandle::find_by_accessible_label(&window, "Processo");
+            let portuguese_process_header = portuguese_process_headers
+                .next()
+                .expect("find the Portuguese process sort header after locale switch");
+            assert_eq!(
+                portuguese_process_header
+                    .accessible_description()
+                    .expect("unsorted Portuguese description is accessible")
+                    .as_str(),
+                "Não ordenado por esta coluna"
+            );
+            window.set_sort_key(SharedString::from("name"));
+            window.set_sort_descending(false);
+            assert_eq!(
+                portuguese_process_header
+                    .accessible_description()
+                    .expect("ascending Portuguese description is accessible")
+                    .as_str(),
+                "Classificação crescente"
+            );
+            window.set_sort_descending(true);
+            assert_eq!(
+                portuguese_process_header
+                    .accessible_description()
+                    .expect("descending Portuguese description is accessible")
+                    .as_str(),
+                "Classificação decrescente"
+            );
+            window.set_sort_key(SharedString::from("cpu"));
+            window.set_sort_descending(true);
+            window.set_selected_process_started(SharedString::from(process_start_age_label(
+                940,
+                1_000,
+                Locale::PtBr,
+                &ui_catalogs,
+            )));
+            let portuguese_telemetry_status = ui_catalogs.telemetry_status_texts(Locale::PtBr);
+            window.set_cpu_cores(ModelRc::new(VecModel::from(vec![CpuCoreRow {
+                name: SharedString::from(
+                    portuguese_telemetry_status.core_name(1_234, Locale::PtBr),
+                ),
+                usage: SharedString::from("12,3%"),
+                fraction: 0.123,
+            }])));
             window.set_active_page(MainPage::Performance);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Núcleo 1.234")
+                    .next()
+                    .is_some()
+            );
+            window.set_cpu_cores(ModelRc::new(VecModel::from(Vec::new())));
+            window.set_active_page(MainPage::Overview);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Indisponível")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Indisponível nesta amostra")
+                    .next()
+                    .is_some()
+            );
+            window.set_active_page(MainPage::Processes);
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Início: há 1 min · CPU 1.5% · RAM 3.0 MiB (2.0%)"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Árvore de processos (somente leitura)"
+                )
+                .next()
+                .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Árvore truncada no limite da resposta."
+                )
+                .next()
+                .is_some()
+            );
+            window.set_active_page(MainPage::Overview);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Aquecendo")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Amostra há 1.234 min")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agente sem suporte a métricas de bateria nesta versão"
+                )
+                .next()
+                .is_some()
+            );
+            window.set_agent_connected(false);
+            sample_age_state_for_locale
+                .store(SampleAgeState::NoRecentSample.code(), Ordering::Release);
+            apply_agent_connection_status_texts(&window, &ui_catalogs, Locale::PtBr, true);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Sem conexão com o agente")
+                    .next()
+                    .is_some()
+            );
+            let mut disconnected_english_selector =
+                ElementHandle::find_by_element_id(&window, "MainWindow::language_en_us");
+            disconnected_english_selector
+                .next()
+                .expect("find English selector for disconnected state")
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Agent disconnected")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Battery unavailable")
+                    .next()
+                    .is_some()
+            );
+            window.set_active_page(MainPage::Performance);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "GPU unavailable")
+                    .next()
+                    .is_some()
+            );
+            window.set_active_page(MainPage::Storage);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Waiting for agent connection…")
+                    .next()
+                    .is_some()
+            );
+            window.set_active_page(MainPage::Network);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Waiting for agent connection…")
+                    .next()
+                    .is_some()
+            );
+            let mut disconnected_portuguese_selector =
+                ElementHandle::find_by_element_id(&window, "MainWindow::language_pt_br");
+            disconnected_portuguese_selector
+                .next()
+                .expect("find Portuguese selector for disconnected state")
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Aguardando conexão com o agente…"
+                )
+                .next()
+                .is_some()
+            );
+            window.set_active_page(MainPage::Overview);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Sem conexão com o agente")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "Bateria indisponível")
+                    .next()
+                    .is_some()
+            );
+            window.set_active_page(MainPage::Performance);
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "GPU indisponível")
+                    .next()
+                    .is_some()
+            );
+            window.set_agent_connected(true);
+            sample_age_state_for_locale
+                .store(SampleAgeState::SampleAvailable.code(), Ordering::Release);
+            window.set_active_page(MainPage::Overview);
+            let mut visible_chart_english_selector =
+                ElementHandle::find_by_element_id(&window, "MainWindow::language_en_us");
+            visible_chart_english_selector
+                .next()
+                .expect("find English selector while charts are visible")
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "start").count(),
+                2
+            );
+            let mut visible_chart_portuguese_selector =
+                ElementHandle::find_by_element_id(&window, "MainWindow::language_pt_br");
+            visible_chart_portuguese_selector
+                .next()
+                .expect("find Portuguese selector while charts are visible")
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "agora").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "Aguardando amostras").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "início").count(),
+                2
+            );
+            window.set_active_page(MainPage::Performance);
+            assert!(
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Agente sem suporte a métricas de GPU nesta versão"
+                )
+                .next()
+                .is_some()
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "agora").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "Aguardando amostras").count(),
+                2
+            );
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "início").count(),
+                2
+            );
             for label in [
                 "1 minuto",
                 "5 minutos",
@@ -2851,6 +3872,59 @@ mod tests {
                 assert!(
                     ElementHandle::find_by_accessible_label(&window, label).count() >= 2,
                     "the Portuguese {label} title must appear in navigation and page content"
+                );
+            }
+            window.set_active_page(MainPage::Storage);
+            for label in [
+                "Unidades",
+                "Ponto de montagem",
+                "Leitura",
+                "Escrita",
+                "Sistema de arquivos",
+                "Disponível",
+                "Total",
+                "Atividade por dispositivo de bloco (Linux)",
+                "Dispositivo",
+                "IOPS leitura",
+                "IOPS gravação",
+                "Ocupação",
+            ] {
+                assert!(
+                    ElementHandle::find_by_accessible_label(&window, label)
+                        .next()
+                        .is_some(),
+                    "missing Portuguese storage label {label}"
+                );
+            }
+            let mut localized_si_choice =
+                ElementHandle::find_by_element_id(&window, "MainWindow::byte_units_si");
+            assert_eq!(
+                localized_si_choice
+                    .next()
+                    .expect("find the Portuguese SI selector")
+                    .accessible_label()
+                    .expect("SI selector has a localized accessible label")
+                    .as_str(),
+                "Unidades decimais SI"
+            );
+            let mut localized_iec_choice =
+                ElementHandle::find_by_element_id(&window, "MainWindow::byte_units_iec");
+            assert_eq!(
+                localized_iec_choice
+                    .next()
+                    .expect("find the Portuguese IEC selector")
+                    .accessible_label()
+                    .expect("IEC selector has a localized accessible label")
+                    .as_str(),
+                "Unidades binárias IEC"
+            );
+            window.set_active_page(MainPage::Network);
+            for label in ["Interface", "Tipo", "Recebimento", "Envio"] {
+                assert!(
+                    ElementHandle::find_by_accessible_label(&window, label)
+                        .next()
+                        .is_some(),
+                    "missing Portuguese network label {label}"
                 );
             }
             window.set_active_page(MainPage::Overview);
@@ -3025,6 +4099,14 @@ mod tests {
                 process_header.accessible_role(),
                 Some(i_slint_backend_testing::AccessibleRole::Button)
             );
+            for label in ["PID", "PPID", "CPU %"] {
+                assert!(
+                    ElementHandle::find_by_accessible_label(&window, label)
+                        .next()
+                        .is_some(),
+                    "missing Portuguese process header {label}"
+                );
+            }
             assert_eq!(
                 process_header
                     .accessible_description()
@@ -3032,6 +4114,24 @@ mod tests {
                     .as_str(),
                 "Não ordenado por esta coluna"
             );
+            window.set_sort_key(SharedString::from("name"));
+            window.set_sort_descending(false);
+            assert_eq!(
+                process_header
+                    .accessible_description()
+                    .expect("ascending sort description is accessible")
+                    .as_str(),
+                "Classificação crescente"
+            );
+            window.set_sort_descending(true);
+            assert_eq!(
+                process_header
+                    .accessible_description()
+                    .expect("descending sort description is accessible")
+                    .as_str(),
+                "Classificação decrescente"
+            );
+            window.set_sort_key(SharedString::from("cpu"));
 
             window.set_processes(ModelRc::new(VecModel::from(vec![ProcessRow {
                 key: SharedString::from("42:1700000000"),
@@ -3135,6 +4235,7 @@ mod tests {
                     name: SharedString::from("lo"),
                     kind: SharedString::from(network_interface_kind_label(
                         NetworkInterfaceKind::Loopback,
+                        &ui_catalogs,
                         Locale::PtBr,
                     )),
                     received: SharedString::from("0 B/s"),
@@ -3144,6 +4245,7 @@ mod tests {
                     name: SharedString::from("enp-test"),
                     kind: SharedString::from(network_interface_kind_label(
                         NetworkInterfaceKind::Unknown,
+                        &ui_catalogs,
                         Locale::PtBr,
                     )),
                     received: SharedString::from("—"),
@@ -3171,6 +4273,7 @@ mod tests {
                 7,
                 1,
                 "temporarily_unavailable",
+                &ui_catalogs,
                 Locale::EnUs,
             )));
             window.set_gpus(ModelRc::new(VecModel::from(vec![GpuRow {
@@ -3196,6 +4299,40 @@ mod tests {
                 .single_click(PointerEventButton::Left)
                 .await;
             assert_eq!(window.get_language(), UiLanguage::EnUs);
+            window.set_active_page(MainPage::Network);
+            window.set_network_interfaces(ModelRc::new(VecModel::from(vec![
+                NetworkInterfaceRow {
+                    name: SharedString::from("lo"),
+                    kind: SharedString::from(network_interface_kind_label(
+                        NetworkInterfaceKind::Loopback,
+                        &ui_catalogs,
+                        Locale::EnUs,
+                    )),
+                    received: SharedString::from("0 B/s"),
+                    transmitted: SharedString::from("0 B/s"),
+                },
+                NetworkInterfaceRow {
+                    name: SharedString::from("enp-test"),
+                    kind: SharedString::from(network_interface_kind_label(
+                        NetworkInterfaceKind::Unknown,
+                        &ui_catalogs,
+                        Locale::EnUs,
+                    )),
+                    received: SharedString::from("—"),
+                    transmitted: SharedString::from("—"),
+                },
+            ])));
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "lo, Loopback")
+                    .next()
+                    .is_some()
+            );
+            assert!(
+                ElementHandle::find_by_accessible_label(&window, "enp-test, Unknown")
+                    .next()
+                    .is_some()
+            );
+            window.set_active_page(MainPage::Processes);
 
             window.set_processes(ModelRc::new(VecModel::from(vec![ProcessRow {
                 key: SharedString::from("42:1700000000"),
@@ -3239,30 +4376,50 @@ mod tests {
 
     #[test]
     fn process_start_age_shows_relative_time_and_missing_values() {
+        let catalogs = UiCatalogs::load().expect("load and validate both catalogs");
         assert_eq!(
-            process_start_age_label(0, 10_000, Locale::PtBr),
+            process_start_age_label(0, 10_000, Locale::PtBr, &catalogs),
             "Indisponível"
         );
         assert_eq!(
-            process_start_age_label(9_970, 10_000, Locale::PtBr),
+            process_start_age_label(9_970, 10_000, Locale::PtBr, &catalogs),
             "há 30 s"
         );
         assert_eq!(
-            process_start_age_label(9_000, 10_000, Locale::PtBr),
+            process_start_age_label(9_000, 10_000, Locale::PtBr, &catalogs),
             "há 16 min"
         );
-        assert_eq!(process_start_age_label(1_000, 100, Locale::PtBr), "há 0 s");
         assert_eq!(
-            process_start_age_label(9_970, 10_000, Locale::EnUs),
+            process_start_age_label(1_000, 100, Locale::PtBr, &catalogs),
+            "há 0 s"
+        );
+        assert_eq!(
+            process_start_age_label(9_970, 10_000, Locale::EnUs, &catalogs),
             "30 secs ago"
         );
         assert_eq!(
-            process_start_age_label(1, 1 + 1_234 * 86_400, Locale::PtBr),
+            process_start_age_label(1, 1 + 1_234 * 86_400, Locale::PtBr, &catalogs),
             "há 1.234 d"
         );
         assert_eq!(
-            process_start_age_label(1, 1 + 1_234 * 86_400, Locale::EnUs),
+            process_start_age_label(1, 1 + 1_234 * 86_400, Locale::EnUs, &catalogs),
             "1,234 days ago"
+        );
+        assert_eq!(
+            process_start_age_label(9_999, 10_000, Locale::EnUs, &catalogs),
+            "1 sec ago"
+        );
+        assert_eq!(
+            process_start_age_label(10_000 - 3_600, 10_000, Locale::EnUs, &catalogs),
+            "1 hr ago"
+        );
+        assert_eq!(
+            process_start_age_label(10_000 - 7_200, 10_000, Locale::EnUs, &catalogs),
+            "2 hrs ago"
+        );
+        assert_eq!(
+            process_start_age_label(13_600, 100_000, Locale::EnUs, &catalogs),
+            "1 day ago"
         );
     }
 
@@ -3282,37 +4439,97 @@ mod tests {
     }
 
     #[test]
-    fn sample_age_uses_the_snapshot_time_and_handles_uninitialized_data() {
+    fn sample_age_uses_catalogs_and_snapshot_time_for_both_locales() {
+        let catalogs = UiCatalogs::load().expect("load and validate both catalogs");
         assert_eq!(
-            sample_age_label(0, 10_000, Locale::PtBr),
+            sample_age_status_text(
+                SampleAgeState::WaitingForFirstSample,
+                0,
+                10_000,
+                &catalogs,
+                Locale::PtBr,
+            ),
             "Aguardando primeira amostra"
         );
         assert_eq!(
-            sample_age_label(9_500, 10_000, Locale::PtBr),
+            sample_age_status_text(
+                SampleAgeState::SampleAvailable,
+                9_500,
+                10_000,
+                &catalogs,
+                Locale::PtBr,
+            ),
             "Amostra há menos de 1 s"
         );
         assert_eq!(
-            sample_age_label(5_000, 10_000, Locale::PtBr),
+            sample_age_status_text(
+                SampleAgeState::SampleAvailable,
+                5_000,
+                10_000,
+                &catalogs,
+                Locale::PtBr,
+            ),
             "Amostra há 5 s"
         );
         assert_eq!(
-            sample_age_label(11_000, 10_000, Locale::PtBr),
+            sample_age_status_text(
+                SampleAgeState::SampleAvailable,
+                11_000,
+                10_000,
+                &catalogs,
+                Locale::PtBr,
+            ),
             "Amostra há menos de 1 s"
         );
         assert_eq!(
-            sample_age_label(0, 10_000, Locale::EnUs),
-            "Aguardando primeira amostra"
+            sample_age_status_text(
+                SampleAgeState::WaitingForFirstSample,
+                0,
+                10_000,
+                &catalogs,
+                Locale::EnUs,
+            ),
+            "Waiting for the first sample"
         );
         assert_eq!(
-            sample_age_label(10_000, 74_050_000, Locale::PtBr),
+            sample_age_status_text(
+                SampleAgeState::SampleAvailable,
+                10_000,
+                74_050_000,
+                &catalogs,
+                Locale::PtBr,
+            ),
             "Amostra há 1.234 min"
         );
         assert_eq!(
-            localized_sample_age(
-                &sample_age_label(10_000, 74_050_000, Locale::EnUs),
+            sample_age_status_text(
+                SampleAgeState::SampleAvailable,
+                10_000,
+                74_050_000,
+                &catalogs,
                 Locale::EnUs,
             ),
             "Sample 1,234 min ago"
+        );
+        assert_eq!(
+            sample_age_status_text(
+                SampleAgeState::NoRecentSample,
+                10_000,
+                74_050_000,
+                &catalogs,
+                Locale::PtBr,
+            ),
+            "Sem amostra recente"
+        );
+        assert_eq!(
+            sample_age_status_text(
+                SampleAgeState::NoRecentSample,
+                10_000,
+                74_050_000,
+                &catalogs,
+                Locale::EnUs,
+            ),
+            "No recent sample"
         );
     }
 
@@ -3360,25 +4577,6 @@ mod tests {
 
         assert_eq!(compare_optional_cpu(Some(5.0), None, true), Ordering::Less);
         assert_eq!(compare_optional_cpu(Some(5.0), None, false), Ordering::Less);
-    }
-
-    #[test]
-    fn lifecycle_status_reports_the_session_manager_and_registration_failure() {
-        assert!(
-            lifecycle_status("ok", Some(StartupMode::SystemdUser), None).contains("systemd --user")
-        );
-        assert!(
-            lifecycle_status("ok", None, Some("permission denied")).contains("permission denied")
-        );
-    }
-
-    #[test]
-    fn unavailable_status_never_reports_a_disconnected_agent_as_active() {
-        let status = unavailable_status("socket not found", Some(StartupMode::SystemdUser), None);
-
-        assert!(status.contains("Agente indisponível"));
-        assert!(status.contains("systemd --user"));
-        assert!(!status.contains("Agente ativo"));
     }
 
     fn process(

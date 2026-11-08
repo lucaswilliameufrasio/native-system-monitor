@@ -83,7 +83,7 @@ component MetricPanel inherits Rectangle {
         spacing: 5px;
         Text { text: title; color: #9eacbd; font-size: 13px; }
         Text { text: value; color: accent; font-size: 22px; }
-        Text { text: detail; color: #8493a5; font-size: 12px; overflow: elide; }
+        Text { text: detail; accessible-label: detail; color: #8493a5; font-size: 12px; overflow: elide; }
     }
 }
 
@@ -142,17 +142,19 @@ component RangeChoice inherits Rectangle {
 }
 
 component SortHeader inherits Rectangle {
-    in property <UiLanguage> language: UiLanguage.pt_br;
     in property <string> label;
     in property <string> key;
     in property <string> active-key;
     in property <bool> descending;
+    in property <string> unsorted-description;
+    in property <string> ascending-description;
+    in property <string> descending-description;
     callback requested(string);
     accessible-role: button;
     accessible-label: label;
-    accessible-description: language == UiLanguage.en_us
-        ? (active-key == key ? (descending ? "Sorted descending" : "Sorted ascending") : "Not sorted by this column")
-        : (active-key == key ? (descending ? "Classificação decrescente" : "Classificação crescente") : "Não ordenado por esta coluna");
+    accessible-description: active-key == key
+        ? (descending ? descending-description : ascending-description)
+        : unsorted-description;
     accessible-action-default => { root.requested(root.key); }
     min-width: 0px;
     height: 28px;
@@ -172,7 +174,6 @@ component SortHeader inherits Rectangle {
 }
 
 component ChartPanel inherits Rectangle {
-    in property <UiLanguage> language: UiLanguage.pt_br;
     in property <string> accessible-summary;
     accessible-role: image;
     accessible-label: accessible-summary;
@@ -181,6 +182,8 @@ component ChartPanel inherits Rectangle {
     in property <[float]> points;
     in property <color> accent;
     in property <string> range-start;
+    in property <string> now-label;
+    in property <string> waiting-label;
     background: #19212b;
     border-color: #2c3744;
     border-width: 1px;
@@ -219,7 +222,8 @@ component ChartPanel inherits Rectangle {
                 if points.length == 0: Text {
                     width: parent.width;
                     height: parent.height;
-                    text: language == UiLanguage.en_us ? "Waiting for samples" : "Aguardando amostras";
+                    text: waiting-label;
+                    accessible-label: waiting-label;
                     color: #8493a5;
                     font-size: 12px;
                     horizontal-alignment: center;
@@ -251,9 +255,9 @@ component ChartPanel inherits Rectangle {
 
         HorizontalLayout {
             height: 18px;
-            Text { text: range-start; color: #8190a2; font-size: 10px; }
+            Text { text: range-start; accessible-label: range-start; color: #8190a2; font-size: 10px; }
             Rectangle { horizontal-stretch: 1; background: transparent; }
-            Text { text: language == UiLanguage.en_us ? "now" : "agora"; color: #8190a2; font-size: 10px; }
+            Text { text: now-label; accessible-label: now-label; color: #8190a2; font-size: 10px; }
         }
     }
 }
@@ -265,6 +269,10 @@ export component MainWindow inherits Window {
     in-out property <UiByteUnitSystem> byte-unit-system: UiByteUnitSystem.iec;
     in-out property <string> header-title: "";
     in-out property <string> header-tagline: "";
+    in-out property <string> header-language-pt-br-accessible-label: "";
+    in-out property <string> header-language-en-us-accessible-label: "";
+    in-out property <string> header-language-pt-br-short-label: "";
+    in-out property <string> header-language-en-us-short-label: "";
     in-out property <string> agent-active-label: "";
     in-out property <string> agent-unavailable-label: "";
     in-out property <string> setup-startup-label: "";
@@ -298,12 +306,43 @@ export component MainWindow inherits Window {
     in-out property <string> performance-cpu-per-core-label: "";
     in-out property <string> performance-cpu-unavailable-label: "";
     in-out property <string> performance-gpu-vram-label: "";
+    in-out property <string> chart-now-label: "";
+    in-out property <string> chart-waiting-label: "";
+    in-out property <string> storage-units-label: "";
+    in-out property <string> storage-si-accessible-label: "";
+    in-out property <string> storage-iec-accessible-label: "";
+    in-out property <string> storage-mount-point-label: "";
+    in-out property <string> storage-read-label: "";
+    in-out property <string> storage-write-label: "";
+    in-out property <string> storage-file-system-label: "";
+    in-out property <string> storage-available-label: "";
+    in-out property <string> storage-total-label: "";
+    in-out property <string> storage-block-activity-label: "";
+    in-out property <string> storage-device-label: "";
+    in-out property <string> storage-read-iops-label: "";
+    in-out property <string> storage-write-iops-label: "";
+    in-out property <string> storage-busy-label: "";
+    in-out property <string> network-interface-label: "";
+    in-out property <string> network-kind-label: "";
+    in-out property <string> network-received-label: "";
+    in-out property <string> network-sent-label: "";
     in-out property <string> process-list-title-label: "";
     in-out property <string> process-filter-placeholder: "";
     in-out property <string> process-filter-accessible-label: "";
     in-out property <string> process-column-label: "";
+    in-out property <string> process-pid-label: "";
+    in-out property <string> process-parent-pid-label: "";
+    in-out property <string> process-cpu-label: "";
+    in-out property <string> process-sort-unsorted-description: "";
+    in-out property <string> process-sort-ascending-description: "";
+    in-out property <string> process-sort-descending-description: "";
     in-out property <string> process-empty-filtered-label: "";
     in-out property <string> process-waiting-connection-label: "";
+    in-out property <string> process-started-label: "";
+    in-out property <string> process-memory-label: "";
+    in-out property <string> process-memory-accessible-label: "";
+    in-out property <string> process-select-prompt-label: "";
+    in-out property <string> process-tree-title-label: "";
     title: header-title;
     preferred-width: 1120px;
     preferred-height: 720px;
@@ -311,16 +350,16 @@ export component MainWindow inherits Window {
     min-height: 600px;
     background: #11161d;
 
-    in-out property <string> agent-status: "Conectando ao agente…";
+    in-out property <string> agent-status: "";
     in-out property <bool> agent-connected: false;
     in-out property <bool> agent-startup-configured: false;
-    in-out property <string> sample-age: "Aguardando amostra";
+    in-out property <string> sample-age: "";
     in-out property <string> cpu-value: "—";
-    in-out property <string> cpu-status: "Aguardando primeira amostra";
+    in-out property <string> cpu-status: "";
     in-out property <string> memory-value: "—";
-    in-out property <string> memory-status: "Aguardando primeira amostra";
+    in-out property <string> memory-status: "";
     in-out property <string> swap-value: "—";
-    in-out property <string> swap-status: "Aguardando primeira amostra";
+    in-out property <string> swap-status: "";
     in-out property <string> process-count: "—";
     in-out property <string> process-count-description: "—";
     in-out property <string> process-count-detail: "";
@@ -328,10 +367,10 @@ export component MainWindow inherits Window {
     in-out property <string> network-interface-count: "—";
     in-out property <string> sort-key: "cpu";
     in-out property <bool> sort-descending: true;
-    in-out property <string> cpu-history-start-label: "início";
-    in-out property <string> memory-history-start-label: "início";
-    in-out property <string> cpu-history-accessible-summary: "Gráfico de CPU aguardando amostras";
-    in-out property <string> memory-history-accessible-summary: "Gráfico de memória aguardando amostras";
+    in-out property <string> cpu-history-start-label: "";
+    in-out property <string> memory-history-start-label: "";
+    in-out property <string> cpu-history-accessible-summary: "";
+    in-out property <string> memory-history-accessible-summary: "";
     in-out property <string> selected-process-key: "";
     in-out property <bool> has-selected-process: false;
     in-out property <string> selected-process-name: "";
@@ -347,15 +386,15 @@ export component MainWindow inherits Window {
     in-out property <[ProcessRow]> processes: [];
     in-out property <[CpuCoreRow]> cpu-cores: [];
     in-out property <[VolumeRow]> volumes: [];
-    in-out property <string> volume-status: "Aguardando conexão com o agente…";
+    in-out property <string> volume-status: "";
     in-out property <[NetworkInterfaceRow]> network-interfaces: [];
-    in-out property <string> network-status: "Aguardando conexão com o agente…";
+    in-out property <string> network-status: "";
     in-out property <[BlockDeviceRow]> block-devices: [];
     in-out property <[GpuRow]> gpus: [];
-    in-out property <string> gpu-status: "GPU indisponível";
+    in-out property <string> gpu-status: "";
     in-out property <string> battery-value: "—";
-    in-out property <string> battery-status: "Bateria indisponível";
-    in-out property <string> block-device-io-status: "Aguardando conexão com o agente…";
+    in-out property <string> battery-status: "";
+    in-out property <string> block-device-io-status: "";
     in-out property <[float]> cpu-history: [];
     in-out property <[float]> memory-history: [];
     in-out property <MainPage> active-page: MainPage.overview;
@@ -424,6 +463,7 @@ export component MainWindow inherits Window {
                 }
                 Text {
                     text: sample-age;
+                    accessible-label: sample-age;
                     color: #8493a5;
                     font-size: 11px;
                     horizontal-alignment: right;
@@ -438,16 +478,16 @@ export component MainWindow inherits Window {
             }
             language_pt_br := RangeChoice {
                 width: 44px;
-                label: "PT";
+                label: root.header-language-pt-br-short-label;
                 active: root.language == UiLanguage.pt_br;
-                accessible-label: "Português (Brasil)";
+                accessible-label: root.header-language-pt-br-accessible-label;
                 activated => { root.language-selected("pt-BR"); }
             }
             language_en_us := RangeChoice {
                 width: 44px;
-                label: "EN";
+                label: root.header-language-en-us-short-label;
                 active: root.language == UiLanguage.en_us;
-                accessible-label: "English (United States)";
+                accessible-label: root.header-language-en-us-accessible-label;
                 activated => { root.language-selected("en-US"); }
             }
             density_comfortable := RangeChoice {
@@ -641,22 +681,24 @@ export component MainWindow inherits Window {
                         vertical-stretch: 1;
                         spacing: 12px;
                         cpu_chart := ChartPanel {
-                            language: root.language;
                             horizontal-stretch: 1;
                             title: root.overview-cpu-usage-label;
                             accessible-summary: root.cpu-history-accessible-summary;
                             points: root.cpu-history;
                             accent: #70b5ff;
                             range-start: root.cpu-history-start-label;
+                            now-label: root.chart-now-label;
+                            waiting-label: root.chart-waiting-label;
                         }
                         memory_chart := ChartPanel {
-                            language: root.language;
                             horizontal-stretch: 1;
                             title: root.overview-memory-usage-label;
                             accessible-summary: root.memory-history-accessible-summary;
                             points: root.memory-history;
                             accent: #50c99a;
                             range-start: root.memory-history-start-label;
+                            now-label: root.chart-now-label;
+                            waiting-label: root.chart-waiting-label;
                         }
                     }
                 }
@@ -699,50 +741,58 @@ export component MainWindow inherits Window {
                                 height: root.density == UiDensity.compact ? 24px : 28px;
                                 spacing: 8px;
                                 SortHeader {
-                                    language: root.language;
                                     horizontal-stretch: 1;
                                     label: root.process-column-label;
                                     key: "name";
                                     active-key: root.sort-key;
                                     descending: root.sort-descending;
+                                    unsorted-description: root.process-sort-unsorted-description;
+                                    ascending-description: root.process-sort-ascending-description;
+                                    descending-description: root.process-sort-descending-description;
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
-                                    language: root.language;
                                     width: 58px;
-                                    label: "PID";
+                                    label: root.process-pid-label;
                                     key: "pid";
                                     active-key: root.sort-key;
                                     descending: root.sort-descending;
+                                    unsorted-description: root.process-sort-unsorted-description;
+                                    ascending-description: root.process-sort-ascending-description;
+                                    descending-description: root.process-sort-descending-description;
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
-                                    language: root.language;
                                     width: 58px;
-                                    label: "PPID";
+                                    label: root.process-parent-pid-label;
                                     key: "parent";
                                     active-key: root.sort-key;
                                     descending: root.sort-descending;
+                                    unsorted-description: root.process-sort-unsorted-description;
+                                    ascending-description: root.process-sort-ascending-description;
+                                    descending-description: root.process-sort-descending-description;
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
-                                    language: root.language;
                                     width: 66px;
-                                    label: "CPU %";
+                                    label: root.process-cpu-label + " %";
                                     key: "cpu";
                                     active-key: root.sort-key;
                                     descending: root.sort-descending;
+                                    unsorted-description: root.process-sort-unsorted-description;
+                                    ascending-description: root.process-sort-ascending-description;
+                                    descending-description: root.process-sort-descending-description;
                                     requested(key) => { root.sort-requested(key); }
                                 }
                                 SortHeader {
-                                    language: root.language;
                                     width: 136px;
-                                    label: root.language == UiLanguage.en_us
-                                        ? "Memory " + (root.byte-unit-system == UiByteUnitSystem.si ? "MB" : "MiB") + " / %"
-                                        : "RAM " + (root.byte-unit-system == UiByteUnitSystem.si ? "MB" : "MiB") + " / %";
+                                    label: root.process-memory-label + " " + (root.byte-unit-system == UiByteUnitSystem.si ? "MB" : "MiB") + " / %";
                                     key: "memory";
                                     active-key: root.sort-key;
                                     descending: root.sort-descending;
+                                    unsorted-description: root.process-sort-unsorted-description;
+                                    ascending-description: root.process-sort-ascending-description;
+                                    descending-description: root.process-sort-descending-description;
                                     requested(key) => { root.sort-requested(key); }
                                 }
                             }
@@ -758,13 +808,15 @@ export component MainWindow inherits Window {
                                     height: parent.height - 12px;
                                     spacing: 3px;
                                     Text {
-                                        text: root.selected-process-name + " · PID " + root.selected-process-pid + " · PPID " + root.selected-process-parent-pid;
+                                        text: root.selected-process-name + " · " + root.process-pid-label + " " + root.selected-process-pid + " · " + root.process-parent-pid-label + " " + root.selected-process-parent-pid;
+                                        accessible-label: root.selected-process-name + " · " + root.process-pid-label + " " + root.selected-process-pid + " · " + root.process-parent-pid-label + " " + root.selected-process-parent-pid;
                                         color: #e4ebf3;
                                         font-size: 12px;
                                         overflow: elide;
                                     }
                                     Text {
-                                        text: (root.language == UiLanguage.en_us ? "Started: " : "Início: ") + root.selected-process-started + " · CPU " + root.selected-process-cpu + " · " + (root.language == UiLanguage.en_us ? "Memory " : "RAM ") + root.selected-process-memory + " " + root.selected-process-memory-unit + " (" + root.selected-process-memory-percent + ")";
+                                        text: root.process-started-label + " " + root.selected-process-started + " · " + root.process-cpu-label + " " + root.selected-process-cpu + " · " + root.process-memory-label + " " + root.selected-process-memory + " " + root.selected-process-memory-unit + " (" + root.selected-process-memory-percent + ")";
+                                        accessible-label: root.process-started-label + " " + root.selected-process-started + " · " + root.process-cpu-label + " " + root.selected-process-cpu + " · " + root.process-memory-label + " " + root.selected-process-memory + " " + root.selected-process-memory-unit + " (" + root.selected-process-memory-percent + ")";
                                         color: #9eacbd;
                                         font-size: 11px;
                                         overflow: elide;
@@ -774,7 +826,8 @@ export component MainWindow inherits Window {
                                     x: 10px;
                                     width: parent.width - 20px;
                                     height: parent.height;
-                                    text: root.language == UiLanguage.en_us ? "Select a process to view its PID, start time, and usage." : "Selecione um processo para ver PID, início e consumo.";
+                                    text: root.process-select-prompt-label;
+                                    accessible-label: root.process-select-prompt-label;
                                     color: #8493a5;
                                     font-size: 11px;
                                     vertical-alignment: center;
@@ -791,12 +844,14 @@ export component MainWindow inherits Window {
                                     padding: 8px;
                                     spacing: 4px;
                                     Text {
-                                        text: root.language == UiLanguage.en_us ? "Process tree (read-only)" : "Árvore de processos (somente leitura)";
+                                        text: root.process-tree-title-label;
+                                        accessible-label: root.process-tree-title-label;
                                         color: #e4ebf3;
                                         font-size: 12px;
                                     }
                                     if root.process-tree.length == 0: Text {
                                         text: root.process-tree-status;
+                                        accessible-label: root.process-tree-status;
                                         color: #8493a5;
                                         font-size: 11px;
                                     }
@@ -837,9 +892,7 @@ export component MainWindow inherits Window {
                                 for process in root.processes: Rectangle {
                                     height: root.density == UiDensity.compact ? 25px : 32px;
                                     accessible-role: list-item;
-                                    accessible-label: root.language == UiLanguage.en_us
-                                        ? process.name + ", PID " + process.pid + ", CPU " + process.cpu + ", memory " + process.memory + " " + process.memory-unit
-                                        : process.name + ", PID " + process.pid + ", CPU " + process.cpu + ", memória " + process.memory + " " + process.memory-unit;
+                                    accessible-label: process.name + ", " + root.process-pid-label + " " + process.pid + ", " + root.process-cpu-label + " " + process.cpu + ", " + root.process-memory-accessible-label + " " + process.memory + " " + process.memory-unit;
                                     accessible-item-selectable: true;
                                     accessible-item-selected: process.key == root.selected-process-key;
                                     accessible-action-default => { process-row-hit-target.clicked(); }
@@ -912,21 +965,23 @@ export component MainWindow inherits Window {
                     }
 
                     ChartPanel {
-                        language: root.language;
                         vertical-stretch: 1;
                         title: root.performance-cpu-total-label;
                         points: root.cpu-history;
                         accent: #70b5ff;
                         range-start: root.cpu-history-start-label;
+                        now-label: root.chart-now-label;
+                        waiting-label: root.chart-waiting-label;
                     }
 
                     ChartPanel {
-                        language: root.language;
                         vertical-stretch: 1;
                         title: root.performance-memory-used-label;
                         points: root.memory-history;
                         accent: #50c99a;
                         range-start: root.memory-history-start-label;
+                        now-label: root.chart-now-label;
+                        waiting-label: root.chart-waiting-label;
                     }
 
                     Rectangle {
@@ -950,7 +1005,7 @@ export component MainWindow inherits Window {
                                 for core in root.cpu-cores: HorizontalLayout {
                                     height: 22px;
                                     spacing: 8px;
-                                    Text { text: core.name; color: #a6b3c2; width: 62px; font-size: 11px; vertical-alignment: center; }
+                                    Text { text: core.name; accessible-label: core.name; color: #a6b3c2; width: 62px; font-size: 11px; vertical-alignment: center; }
                                     Rectangle {
                                         horizontal-stretch: 1;
                                         height: 7px;
@@ -981,6 +1036,7 @@ export component MainWindow inherits Window {
                             Text { text: root.performance-gpu-vram-label; accessible-label: root.performance-gpu-vram-label; color: #e4ebf3; font-size: 13px; }
                             if root.gpus.length == 0: Text {
                                 text: root.gpu-status;
+                                accessible-label: root.gpu-status;
                                 color: #8493a5;
                                 font-size: 12px;
                                 vertical-alignment: center;
@@ -1017,12 +1073,12 @@ export component MainWindow inherits Window {
                         Text { text: root.nav-storage-label; accessible-label: root.nav-storage-label; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
                         Text { text: root.volume-count; accessible-label: root.volume-count; color: #8493a5; font-size: 12px; vertical-alignment: center; }
-                        Text { text: root.language == UiLanguage.en_us ? "Units" : "Unidades"; color: #8493a5; font-size: 11px; vertical-alignment: center; }
+                        Text { text: root.storage-units-label; accessible-label: root.storage-units-label; color: #8493a5; font-size: 11px; vertical-alignment: center; }
                         byte_units_si := RangeChoice {
                             width: 44px;
                             label: "SI";
                             active: root.byte-unit-system == UiByteUnitSystem.si;
-                            accessible-label: root.language == UiLanguage.en_us ? "SI decimal units" : "Unidades decimais SI";
+                            accessible-label: root.storage-si-accessible-label;
                             activated => {
                                 root.byte-unit-system = UiByteUnitSystem.si;
                                 root.byte-unit-system-selected("si");
@@ -1032,7 +1088,7 @@ export component MainWindow inherits Window {
                             width: 44px;
                             label: "IEC";
                             active: root.byte-unit-system == UiByteUnitSystem.iec;
-                            accessible-label: root.language == UiLanguage.en_us ? "IEC binary units" : "Unidades binárias IEC";
+                            accessible-label: root.storage-iec-accessible-label;
                             activated => {
                                 root.byte-unit-system = UiByteUnitSystem.iec;
                                 root.byte-unit-system-selected("iec");
@@ -1054,17 +1110,18 @@ export component MainWindow inherits Window {
                             HorizontalLayout {
                                 height: 28px;
                                 spacing: 8px;
-                                Text { text: root.language == UiLanguage.en_us ? "Mount point" : "Ponto de montagem"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Read" : "Leitura"; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Write" : "Escrita"; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "File system" : "Sistema de arquivos"; color: #9eacbd; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Available" : "Disponível"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Total" : "Total"; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-mount-point-label; accessible-label: root.storage-mount-point-label; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: root.storage-read-label; accessible-label: root.storage-read-label; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-write-label; accessible-label: root.storage-write-label; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-file-system-label; accessible-label: root.storage-file-system-label; color: #9eacbd; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-available-label; accessible-label: root.storage-available-label; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-total-label; accessible-label: root.storage-total-label; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
                             }
 
                             if root.volumes.length == 0: Text {
                                 vertical-stretch: 1;
                                 text: root.volume-status;
+                                accessible-label: root.volume-status;
                                 color: #8493a5;
                                 font-size: 13px;
                                 horizontal-alignment: center;
@@ -1097,22 +1154,23 @@ export component MainWindow inherits Window {
                         VerticalBox {
                             padding: 12px;
                             spacing: 8px;
-                            Text { text: root.language == UiLanguage.en_us ? "Block device activity (Linux)" : "Atividade por dispositivo de bloco (Linux)"; color: #e4ebf3; font-size: 13px; }
+                            Text { text: root.storage-block-activity-label; accessible-label: root.storage-block-activity-label; color: #e4ebf3; font-size: 13px; }
 
                             HorizontalLayout {
                                 height: 22px;
                                 spacing: 8px;
-                                Text { text: root.language == UiLanguage.en_us ? "Device" : "Dispositivo"; color: #9eacbd; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Read" : "Leitura"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Write" : "Escrita"; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Read IOPS" : "IOPS leitura"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Write IOPS" : "IOPS gravação"; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Busy" : "Ocupação"; color: #9eacbd; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-device-label; accessible-label: root.storage-device-label; color: #9eacbd; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: root.storage-read-label; accessible-label: root.storage-read-label; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-write-label; accessible-label: root.storage-write-label; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-read-iops-label; accessible-label: root.storage-read-iops-label; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-write-iops-label; accessible-label: root.storage-write-iops-label; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.storage-busy-label; accessible-label: root.storage-busy-label; color: #9eacbd; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
                             }
 
                             if root.block-devices.length == 0: Text {
                                 vertical-stretch: 1;
                                 text: root.block-device-io-status;
+                                accessible-label: root.block-device-io-status;
                                 color: #8493a5;
                                 font-size: 12px;
                                 horizontal-alignment: center;
@@ -1162,15 +1220,16 @@ export component MainWindow inherits Window {
                             HorizontalLayout {
                                 height: 28px;
                                 spacing: 8px;
-                                Text { text: root.language == UiLanguage.en_us ? "Interface" : "Interface"; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Type" : "Tipo"; color: #9eacbd; font-size: 12px; width: 110px; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Received" : "Recebimento"; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.language == UiLanguage.en_us ? "Sent" : "Envio"; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.network-interface-label; accessible-label: root.network-interface-label; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: root.network-kind-label; accessible-label: root.network-kind-label; color: #9eacbd; font-size: 12px; width: 110px; vertical-alignment: center; }
+                                Text { text: root.network-received-label; accessible-label: root.network-received-label; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: root.network-sent-label; accessible-label: root.network-sent-label; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
                             }
 
                             if root.network-interfaces.length == 0: Text {
                                 vertical-stretch: 1;
                                 text: root.network-status;
+                                accessible-label: root.network-status;
                                 color: #8493a5;
                                 font-size: 13px;
                                 horizontal-alignment: center;
