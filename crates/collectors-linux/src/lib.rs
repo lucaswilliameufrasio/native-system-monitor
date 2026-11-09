@@ -140,12 +140,11 @@ fn is_whole_non_stacked_device(disk: &DiskCounters, sysfs_root: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "linux")]
+    use super::classify_network_interface_from_sysfs;
+    #[cfg(target_os = "linux")]
     use super::is_whole_non_stacked_device;
     use super::{DiskCounters, parse_diskstats};
-    use super::{
-        classify_network_interface_flags, classify_network_interface_from_sysfs,
-        parse_network_interface_flags,
-    };
+    use super::{classify_network_interface_flags, parse_network_interface_flags};
     use native_monitor_domain::NetworkInterfaceKind;
     #[cfg(target_os = "linux")]
     use std::fs;

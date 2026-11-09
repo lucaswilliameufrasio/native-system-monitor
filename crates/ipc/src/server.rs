@@ -712,24 +712,26 @@ fn peer_is_current_user(stream: &interprocess::local_socket::tokio::Stream) -> b
 #[cfg(test)]
 mod tests {
     use super::{MAX_PROCESS_FILTER_CHARS, MAX_PROCESSES_PER_RESPONSE, handle_request};
+    #[cfg(unix)]
+    use crate::wire::ProcessActionResult as WireProcessActionResult;
     use crate::{
         PROCESS_CONTROL_PROTOCOL_MINOR, PROTOCOL_MAJOR, PROTOCOL_MINOR,
         wire::{
             NetworkInterfaceKind as WireNetworkInterfaceKind, Operation,
-            ProcessAction as WireProcessAction, ProcessActionResult as WireProcessActionResult,
-            Request,
+            ProcessAction as WireProcessAction, Request,
         },
     };
     use native_monitor_collector_api::Capability;
-    use native_monitor_domain::{
-        NetworkInterfaceKind, NetworkInterfaceMetrics, ProcessIdentity, SystemSnapshot,
-    };
+    #[cfg(unix)]
+    use native_monitor_domain::ProcessIdentity;
+    use native_monitor_domain::{NetworkInterfaceKind, NetworkInterfaceMetrics, SystemSnapshot};
     #[cfg(unix)]
     use std::ops::{Deref, DerefMut};
     #[cfg(unix)]
     use std::process::{Child, Command, Stdio};
     #[cfg(unix)]
     use std::thread;
+    #[cfg(unix)]
     use std::time::{Duration, Instant};
     #[cfg(unix)]
     use sysinfo::{ProcessesToUpdate, System};
