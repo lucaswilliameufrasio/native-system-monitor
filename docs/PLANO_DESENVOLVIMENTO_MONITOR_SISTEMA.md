@@ -542,11 +542,13 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 
 ### Acompanhamento de implementação
 
-**Atualizado em 2026-11-09.** A CI remota para
+**Atualizado em 2026-11-09.** A CI remota da alteração do gate de licenças, para
 `637ed3babdedb63a734f785649a3bbd9b622926a` passou em Ubuntu 24.04, macOS 15 e
 Windows 2025, incluindo fmt, Clippy, testes, build e auditoria RustSec; o gate
 `cargo deny check licenses` foi instalado e passou no runner Linux.
 [Execução 42593553670](https://github.com/lucaswilliameufrasio/native-system-monitor/actions/runs/42593553670).
+O commit documental subsequente `27bd5bb` também passou nos três runners
+[na execução 42595320776](https://github.com/lucaswilliameufrasio/native-system-monitor/actions/runs/42595320776).
 CI verde não substitui ensaio visual, hardware real ou critérios de aceite não
 executados.
 
@@ -611,7 +613,8 @@ O cargo-audit atualizou o banco RustSec para 1.422 advisories e não encontrou
 vulnerabilidades nem versões yanked; manteve seis avisos de dependências não
 mantidas descritos acima. O workflow também passou em actionlint 1.7.12 local.
 CI remota `42593553670` passou para o commit `637ed3b`; a perna Linux instalou
-`cargo-deny 0.20.2` e aprovou o gate de licenças.
+`cargo-deny 0.20.2` e aprovou o gate de licenças. A atualização documental em
+`27bd5bb` também passou na CI `42595320776`.
 
 **Auditoria de dependências M8 (2026-11-08):** `cargo audit` 0.22.2 atualizou
 `rustsec/advisory-db` para o commit `7a40350e` (2026-11-08). A primeira varredura
