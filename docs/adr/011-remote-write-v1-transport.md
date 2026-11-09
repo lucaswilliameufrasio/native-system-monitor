@@ -32,9 +32,26 @@ retries transitórios e credenciais guardadas fora do TOML.
   transitórias, rejeições permanentes, descartes por fila cheia e timestamp do
   último sucesso. Não adicionar labels com endpoint, host ou credenciais. Esses
   valores reiniciam junto com o agente e não substituem spool durável.
-- Não configurar autenticação nesta fatia: credential stores nativos, rotação,
-  revogação e credential_ref permanecem pendentes. A configuração aceita apenas
+- Não configurar autenticação nesta fatia: a integração com Vault, a rotação,
+  revogação e `credential_ref` permanecem pendentes. A configuração aceita apenas
   receptores que não exijam autenticação até essa integração existir.
+
+## Decisão posterior: custódia de credenciais (2026-11-09)
+
+O responsável pelo projeto escolheu **Vault auto-hospedado** como a custódia a
+integrar para credenciais do Remote Write. A escolha não significa que a
+integração esteja implementada ou que um serviço esteja disponível. Produto/
+versão, ambiente e endereço, identidade usada pelo agente para autenticar no
+Vault, escopo de acesso, caminho/namespace dos segredos, renovação, rotação,
+revogação e recuperação ainda precisam ser definidos antes de habilitar destinos
+autenticados. Não colocar valores secretos em TOML, URLs, argumentos ou logs.
+
+Foi escolhido armazenar o spool durável no diretório de estado da aplicação
+pertencente ao usuário do agente. A localização exata por sistema operacional,
+limites de bytes/lotes, retenção, permissões, formato versionado, recuperação,
+limpeza e condição de ativação ainda precisam ser definidos e implementados. Até
+lá, a fila permanece limitada e volátil conforme esta ADR; lotes aceitos podem se
+perder quando o agente encerra.
 
 ## Alternativas
 

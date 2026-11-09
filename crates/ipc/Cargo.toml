@@ -12,6 +12,7 @@ interprocess.workspace = true
 libc.workspace = true
 native-monitor-collector-api = { path = "../collector-api" }
 native-monitor-domain = { path = "../domain" }
+native-monitor-process-control = { path = "../process-control" }
 prost.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -19,6 +20,9 @@ tracing.workspace = true
 [build-dependencies]
 prost-build.workspace = true
 protoc-bin-vendored.workspace = true
+
+[dev-dependencies]
+sysinfo.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 widestring.workspace = true

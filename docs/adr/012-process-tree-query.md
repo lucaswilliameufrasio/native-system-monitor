@@ -1,6 +1,6 @@
 # ADR-012: processo e árvore de descendentes por identidade no IPC
 
-- **Status:** Aceito para a primeira fatia somente de leitura de M6
+- **Status:** Aceito para a consulta de árvore somente de leitura; ações de processo são especificadas em [ADR-017](017-user-process-control.md)
 - **Data:** 2026-10-26
 - **Referência:** plano mestre, seções 3.4 e M6; ADR-002 e ADR-003.
 
@@ -28,6 +28,10 @@ clientes ao usuário da sessão.
 - A consulta é somente leitura. Não cria autorização para terminar processos ou
   acessar processos de outra conta; sinais e helpers exigem uma decisão própria
   sobre identidade atômica, permissões por OS, confirmação e auditoria.
+
+Esta decisão limita somente a operação `ProcessTree`. A primeira fatia de
+controle de processos, aprovada posteriormente, está em ADR-017; ela não torna a
+consulta de árvore mutável nem autoriza helper ou elevação.
 
 ## Alternativas
 

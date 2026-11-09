@@ -1,6 +1,6 @@
 use crate::{
     PROTOCOL_MAJOR, PROTOCOL_MINOR, frame,
-    wire::{Operation, Request, Response},
+    wire::{Operation, ProcessAction, ProcessActionResult, Request, Response},
 };
 use anyhow::{Context, Result, bail};
 use interprocess::local_socket::{tokio::Stream as LocalSocketStream, traits::tokio::Stream as _};
@@ -37,6 +37,7 @@ pub async fn request_with_process_query(
         process_sort_key: sort_by.to_owned(),
         process_pid: 0,
         process_start_time_unix_seconds: 0,
+        process_action: ProcessAction::Unspecified as i32,
     };
 
     exchange(request).await
@@ -53,6 +54,37 @@ pub async fn request_process_tree(pid: u32, start_time_unix_seconds: u64) -> Res
         ..Request::default()
     };
     exchange(request).await
+}
+
+pub async fn request_process_action(
+    pid: u32,
+    start_time_unix_seconds: u64,
+    action: ProcessAction,
+) -> Result<ProcessActionResult> {
+    if pid == 0 || start_time_unix_seconds == 0 {
+        bail!("process control requires a nonzero PID and start time");
+    }
+    if !matches!(action, ProcessAction::Gentle | ProcessAction::Force) {
+        bail!("process control action is unspecified");
+    }
+
+    let response = exchange(Request {
+        protocol_major: PROTOCOL_MAJOR,
+        protocol_minor: PROTOCOL_MINOR,
+        operation: Operation::ProcessControl as i32,
+        process_pid: pid,
+        process_start_time_unix_seconds: start_time_unix_seconds,
+        process_action: action as i32,
+        ..Request::default()
+    })
+    .await?;
+    let result = ProcessActionResult::try_from(response.process_action_result)
+        .context("agent returned an unknown process action result")?;
+    if result == ProcessActionResult::Unspecified {
+        bail!("agent did not return a process action result");
+    }
+
+    Ok(result)
 }
 
 async fn exchange(request: Request) -> Result<Response> {

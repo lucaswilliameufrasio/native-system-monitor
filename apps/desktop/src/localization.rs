@@ -346,6 +346,42 @@ struct ProcessCountForms {
     tree_process_missing: String,
     #[serde(rename = "tree-error")]
     tree_error: String,
+    #[serde(rename = "action-request")]
+    action_request: String,
+    #[serde(rename = "action-confirm-gentle")]
+    action_confirm_gentle: String,
+    #[serde(rename = "action-confirm-force")]
+    action_confirm_force: String,
+    #[serde(rename = "action-sending-gentle")]
+    action_sending_gentle: String,
+    #[serde(rename = "action-waiting-gentle")]
+    action_waiting_gentle: String,
+    #[serde(rename = "action-sending-force")]
+    action_sending_force: String,
+    #[serde(rename = "action-confirm")]
+    action_confirm: String,
+    #[serde(rename = "action-force")]
+    action_force: String,
+    #[serde(rename = "action-cancel")]
+    action_cancel: String,
+    #[serde(rename = "action-stop-escalation")]
+    action_stop_escalation: String,
+    #[serde(rename = "action-dismiss")]
+    action_dismiss: String,
+    #[serde(rename = "action-result-submitted")]
+    action_result_submitted: String,
+    #[serde(rename = "action-result-no-window")]
+    action_result_no_window: String,
+    #[serde(rename = "action-result-not-found")]
+    action_result_not_found: String,
+    #[serde(rename = "action-result-identity-mismatch")]
+    action_result_identity_mismatch: String,
+    #[serde(rename = "action-result-permission-denied")]
+    action_result_permission_denied: String,
+    #[serde(rename = "action-result-unsupported")]
+    action_result_unsupported: String,
+    #[serde(rename = "action-result-failed")]
+    action_result_failed: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -755,6 +791,78 @@ impl UiCatalog {
                 self.processes.tree_process_missing.as_str(),
             ),
             ("processes.tree-error", self.processes.tree_error.as_str()),
+            (
+                "processes.action-request",
+                self.processes.action_request.as_str(),
+            ),
+            (
+                "processes.action-confirm-gentle",
+                self.processes.action_confirm_gentle.as_str(),
+            ),
+            (
+                "processes.action-confirm-force",
+                self.processes.action_confirm_force.as_str(),
+            ),
+            (
+                "processes.action-sending-gentle",
+                self.processes.action_sending_gentle.as_str(),
+            ),
+            (
+                "processes.action-waiting-gentle",
+                self.processes.action_waiting_gentle.as_str(),
+            ),
+            (
+                "processes.action-sending-force",
+                self.processes.action_sending_force.as_str(),
+            ),
+            (
+                "processes.action-confirm",
+                self.processes.action_confirm.as_str(),
+            ),
+            (
+                "processes.action-force",
+                self.processes.action_force.as_str(),
+            ),
+            (
+                "processes.action-cancel",
+                self.processes.action_cancel.as_str(),
+            ),
+            (
+                "processes.action-stop-escalation",
+                self.processes.action_stop_escalation.as_str(),
+            ),
+            (
+                "processes.action-dismiss",
+                self.processes.action_dismiss.as_str(),
+            ),
+            (
+                "processes.action-result-submitted",
+                self.processes.action_result_submitted.as_str(),
+            ),
+            (
+                "processes.action-result-no-window",
+                self.processes.action_result_no_window.as_str(),
+            ),
+            (
+                "processes.action-result-not-found",
+                self.processes.action_result_not_found.as_str(),
+            ),
+            (
+                "processes.action-result-identity-mismatch",
+                self.processes.action_result_identity_mismatch.as_str(),
+            ),
+            (
+                "processes.action-result-permission-denied",
+                self.processes.action_result_permission_denied.as_str(),
+            ),
+            (
+                "processes.action-result-unsupported",
+                self.processes.action_result_unsupported.as_str(),
+            ),
+            (
+                "processes.action-result-failed",
+                self.processes.action_result_failed.as_str(),
+            ),
         ];
 
         for (key, label) in header_labels {
@@ -1419,6 +1527,24 @@ pub struct ProcessTexts<'a> {
     pub tree_empty: &'a str,
     pub tree_process_missing: &'a str,
     pub tree_error: &'a str,
+    pub action_request: &'a str,
+    pub action_confirm_gentle: &'a str,
+    pub action_confirm_force: &'a str,
+    pub action_sending_gentle: &'a str,
+    pub action_waiting_gentle: &'a str,
+    pub action_sending_force: &'a str,
+    pub action_confirm: &'a str,
+    pub action_force: &'a str,
+    pub action_cancel: &'a str,
+    pub action_stop_escalation: &'a str,
+    pub action_dismiss: &'a str,
+    pub action_result_submitted: &'a str,
+    pub action_result_no_window: &'a str,
+    pub action_result_not_found: &'a str,
+    pub action_result_identity_mismatch: &'a str,
+    pub action_result_permission_denied: &'a str,
+    pub action_result_unsupported: &'a str,
+    pub action_result_failed: &'a str,
 }
 
 pub struct ConnectionStatusTexts<'a> {
@@ -1723,6 +1849,24 @@ impl UiCatalogs {
             tree_empty: &processes.tree_empty,
             tree_process_missing: &processes.tree_process_missing,
             tree_error: &processes.tree_error,
+            action_request: &processes.action_request,
+            action_confirm_gentle: &processes.action_confirm_gentle,
+            action_confirm_force: &processes.action_confirm_force,
+            action_sending_gentle: &processes.action_sending_gentle,
+            action_waiting_gentle: &processes.action_waiting_gentle,
+            action_sending_force: &processes.action_sending_force,
+            action_confirm: &processes.action_confirm,
+            action_force: &processes.action_force,
+            action_cancel: &processes.action_cancel,
+            action_stop_escalation: &processes.action_stop_escalation,
+            action_dismiss: &processes.action_dismiss,
+            action_result_submitted: &processes.action_result_submitted,
+            action_result_no_window: &processes.action_result_no_window,
+            action_result_not_found: &processes.action_result_not_found,
+            action_result_identity_mismatch: &processes.action_result_identity_mismatch,
+            action_result_permission_denied: &processes.action_result_permission_denied,
+            action_result_unsupported: &processes.action_result_unsupported,
+            action_result_failed: &processes.action_result_failed,
         }
     }
 

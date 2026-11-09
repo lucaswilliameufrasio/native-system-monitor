@@ -1,11 +1,12 @@
 use crate::{
-    MAX_ACTIVE_CLIENTS, PROTOCOL_MAJOR, PROTOCOL_MINOR,
+    MAX_ACTIVE_CLIENTS, PROCESS_CONTROL_PROTOCOL_MINOR, PROTOCOL_MAJOR, PROTOCOL_MINOR,
     frame::{read_message, write_message},
     wire::{
         BlockDeviceMetrics as WireBlockDeviceMetrics, Capability as WireCapability,
         CpuMetrics as WireCpuMetrics, MemoryMetrics as WireMemoryMetrics,
         NetworkInterfaceKind as WireNetworkInterfaceKind,
         NetworkInterfaceMetrics as WireNetworkInterfaceMetrics, Operation,
+        ProcessAction as WireProcessAction, ProcessActionResult as WireProcessActionResult,
         ProcessMetrics as WireProcessMetrics, Request, Response, Snapshot as WireSnapshot,
         VolumeMetrics as WireVolumeMetrics,
     },
@@ -372,6 +373,81 @@ fn handle_request(
                 ..Response::default()
             }
         }
+        Operation::ProcessControl => {
+            if request.protocol_minor < PROCESS_CONTROL_PROTOCOL_MINOR {
+                return error_response(
+                    "unsupported_operation",
+                    "process control requires IPC protocol minor 11".to_owned(),
+                );
+            }
+            if request.process_pid == 0 || request.process_start_time_unix_seconds == 0 {
+                return error_response(
+                    "invalid_process_identity",
+                    "process control requires a nonzero PID and start time".to_owned(),
+                );
+            }
+            let action = match WireProcessAction::try_from(request.process_action) {
+                Ok(WireProcessAction::Gentle) => {
+                    native_monitor_process_control::ProcessAction::Gentle
+                }
+                Ok(WireProcessAction::Force) => {
+                    native_monitor_process_control::ProcessAction::Force
+                }
+                Ok(WireProcessAction::Unspecified) | Err(_) => {
+                    return error_response(
+                        "invalid_process_action",
+                        "process control action must be gentle or force".to_owned(),
+                    );
+                }
+            };
+            let identity = native_monitor_domain::ProcessIdentity {
+                pid: request.process_pid,
+                start_time_unix_seconds: request.process_start_time_unix_seconds,
+            };
+            let result = native_monitor_process_control::perform_action(identity, action);
+            let wire_result = match result {
+                native_monitor_process_control::ProcessActionResult::Submitted => {
+                    WireProcessActionResult::Submitted
+                }
+                native_monitor_process_control::ProcessActionResult::NoWindowFound => {
+                    WireProcessActionResult::NoWindowFound
+                }
+                native_monitor_process_control::ProcessActionResult::ProcessNotFound => {
+                    WireProcessActionResult::ProcessNotFound
+                }
+                native_monitor_process_control::ProcessActionResult::IdentityMismatch => {
+                    WireProcessActionResult::IdentityMismatch
+                }
+                native_monitor_process_control::ProcessActionResult::PermissionDenied => {
+                    WireProcessActionResult::PermissionDenied
+                }
+                native_monitor_process_control::ProcessActionResult::Unsupported => {
+                    WireProcessActionResult::Unsupported
+                }
+                native_monitor_process_control::ProcessActionResult::Failed => {
+                    WireProcessActionResult::Failed
+                }
+            };
+            let timestamp_unix_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+                .unwrap_or_default();
+            tracing::info!(
+                timestamp_unix_ms,
+                process_pid = identity.pid,
+                process_start_time_unix_seconds = identity.start_time_unix_seconds,
+                action = ?action,
+                result = ?result,
+                "process control request"
+            );
+            Response {
+                protocol_major: PROTOCOL_MAJOR,
+                protocol_minor: PROTOCOL_MINOR,
+                status: "running".to_owned(),
+                process_action_result: wire_result as i32,
+                ..Response::default()
+            }
+        }
         Operation::Unspecified => {
             error_response("invalid_operation", "operation is required".to_owned())
         }
@@ -637,11 +713,103 @@ fn peer_is_current_user(stream: &interprocess::local_socket::tokio::Stream) -> b
 mod tests {
     use super::{MAX_PROCESS_FILTER_CHARS, MAX_PROCESSES_PER_RESPONSE, handle_request};
     use crate::{
-        PROTOCOL_MAJOR, PROTOCOL_MINOR,
-        wire::{NetworkInterfaceKind as WireNetworkInterfaceKind, Operation, Request},
+        PROCESS_CONTROL_PROTOCOL_MINOR, PROTOCOL_MAJOR, PROTOCOL_MINOR,
+        wire::{
+            NetworkInterfaceKind as WireNetworkInterfaceKind, Operation,
+            ProcessAction as WireProcessAction, ProcessActionResult as WireProcessActionResult,
+            Request,
+        },
     };
     use native_monitor_collector_api::Capability;
-    use native_monitor_domain::{NetworkInterfaceKind, NetworkInterfaceMetrics, SystemSnapshot};
+    use native_monitor_domain::{
+        NetworkInterfaceKind, NetworkInterfaceMetrics, ProcessIdentity, SystemSnapshot,
+    };
+    #[cfg(unix)]
+    use std::ops::{Deref, DerefMut};
+    #[cfg(unix)]
+    use std::process::{Child, Command, Stdio};
+    #[cfg(unix)]
+    use std::thread;
+    use std::time::{Duration, Instant};
+    #[cfg(unix)]
+    use sysinfo::{ProcessesToUpdate, System};
+
+    #[cfg(unix)]
+    const PROCESS_CONTROL_FIXTURE_TEST: &str =
+        "server::tests::process_control_fixture_waits_until_terminated";
+    #[cfg(unix)]
+    const PROCESS_CONTROL_FIXTURE_ENV: &str = "NATIVE_MONITOR_IPC_PROCESS_FIXTURE";
+
+    #[cfg(unix)]
+    struct ProcessControlFixture(Child);
+
+    #[cfg(unix)]
+    impl Deref for ProcessControlFixture {
+        type Target = Child;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    #[cfg(unix)]
+    impl DerefMut for ProcessControlFixture {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ProcessControlFixture {
+        fn drop(&mut self) {
+            if !matches!(self.0.try_wait(), Ok(Some(_))) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_control_fixture_waits_until_terminated() {
+        if std::env::var_os(PROCESS_CONTROL_FIXTURE_ENV).is_none() {
+            return;
+        }
+        loop {
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    #[cfg(unix)]
+    fn spawn_process_control_fixture() -> ProcessControlFixture {
+        let child = Command::new(std::env::current_exe().expect("current test executable"))
+            .args(["--exact", PROCESS_CONTROL_FIXTURE_TEST, "--nocapture"])
+            .env(PROCESS_CONTROL_FIXTURE_ENV, "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start a process-control fixture child");
+        ProcessControlFixture(child)
+    }
+
+    #[cfg(unix)]
+    fn process_control_fixture_identity(child: &mut ProcessControlFixture) -> ProcessIdentity {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let pid = sysinfo::Pid::from_u32(child.id());
+        let mut system = System::new();
+        while Instant::now() < deadline {
+            system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+            if let Some(process) = system.process(pid) {
+                return ProcessIdentity {
+                    pid: child.id(),
+                    start_time_unix_seconds: process.start_time(),
+                };
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("process-control fixture did not appear in the live process table");
+    }
 
     #[cfg(unix)]
     fn socket_test_directory(label: &str, id: u64) -> std::path::PathBuf {
@@ -728,6 +896,97 @@ mod tests {
         );
 
         assert_eq!(response.error_code, "protocol_version_mismatch");
+    }
+
+    #[test]
+    fn rejects_process_control_from_a_client_without_the_protocol_minor() {
+        let response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                protocol_minor: PROCESS_CONTROL_PROTOCOL_MINOR - 1,
+                operation: Operation::ProcessControl as i32,
+                process_pid: 1,
+                process_start_time_unix_seconds: 1,
+                process_action: WireProcessAction::Gentle as i32,
+                ..Request::default()
+            },
+            &SystemSnapshot::starting(),
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+
+        assert_eq!(response.error_code, "unsupported_operation");
+        assert_eq!(response.process_action_result, 0);
+    }
+
+    #[test]
+    fn rejects_process_control_without_a_typed_action_or_identity() {
+        let action_response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                protocol_minor: PROCESS_CONTROL_PROTOCOL_MINOR,
+                operation: Operation::ProcessControl as i32,
+                process_pid: 1,
+                process_start_time_unix_seconds: 1,
+                process_action: WireProcessAction::Unspecified as i32,
+                ..Request::default()
+            },
+            &SystemSnapshot::starting(),
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+        assert_eq!(action_response.error_code, "invalid_process_action");
+
+        let identity_response = handle_request(
+            Request {
+                protocol_major: PROTOCOL_MAJOR,
+                protocol_minor: PROCESS_CONTROL_PROTOCOL_MINOR,
+                operation: Operation::ProcessControl as i32,
+                process_action: WireProcessAction::Gentle as i32,
+                ..Request::default()
+            },
+            &SystemSnapshot::starting(),
+            MAX_PROCESSES_PER_RESPONSE,
+            1_000,
+            &[],
+        );
+        assert_eq!(identity_response.error_code, "invalid_process_identity");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_control_dispatch_targets_only_owned_fixture_processes() {
+        for action in [WireProcessAction::Gentle, WireProcessAction::Force] {
+            let mut child = spawn_process_control_fixture();
+            let identity = process_control_fixture_identity(&mut child);
+            let response = handle_request(
+                Request {
+                    protocol_major: PROTOCOL_MAJOR,
+                    protocol_minor: PROCESS_CONTROL_PROTOCOL_MINOR,
+                    operation: Operation::ProcessControl as i32,
+                    process_pid: identity.pid,
+                    process_start_time_unix_seconds: identity.start_time_unix_seconds,
+                    process_action: action as i32,
+                    ..Request::default()
+                },
+                &SystemSnapshot::starting(),
+                MAX_PROCESSES_PER_RESPONSE,
+                1_000,
+                &[],
+            );
+
+            assert!(response.error_code.is_empty());
+            assert_eq!(
+                WireProcessActionResult::try_from(response.process_action_result),
+                Ok(WireProcessActionResult::Submitted)
+            );
+            let status = child
+                .wait()
+                .expect("wait for process-control fixture termination");
+            assert!(!status.success());
+        }
     }
 
     #[test]

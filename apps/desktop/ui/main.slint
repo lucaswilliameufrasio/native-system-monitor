@@ -64,6 +64,15 @@ enum HistoryRange { one-minute, five-minutes }
 export enum UiLanguage { pt_br, en_us }
 export enum UiDensity { comfortable, compact }
 export enum UiByteUnitSystem { si, iec }
+export enum ProcessActionUiState {
+    idle,
+    confirm_gentle,
+    sending_gentle,
+    waiting_gentle,
+    confirm_force,
+    sending_force,
+    finished,
+}
 
 component MetricPanel inherits Rectangle {
     min-width: 0px;
@@ -171,6 +180,34 @@ component SortHeader inherits Rectangle {
         overflow: elide;
     }
     TouchArea { clicked => { root.requested(root.key); } }
+}
+
+component ProcessActionButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> destructive;
+    callback activated();
+    accessible-role: button;
+    accessible-label: label;
+    accessible-action-default => { root.activated(); }
+    min-width: 100px;
+    height: 30px;
+    border-radius: 5px;
+    background: destructive ? #5a292d : #28425a;
+    border-color: destructive ? #8a4147 : #47749a;
+    border-width: 1px;
+
+    Text {
+        width: parent.width - 12px;
+        x: 6px;
+        height: parent.height;
+        text: root.label;
+        color: #f2f5f8;
+        font-size: 11px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    TouchArea { clicked => { root.activated(); } }
 }
 
 component ChartPanel inherits Rectangle {
@@ -343,6 +380,15 @@ export component MainWindow inherits Window {
     in-out property <string> process-memory-accessible-label: "";
     in-out property <string> process-select-prompt-label: "";
     in-out property <string> process-tree-title-label: "";
+    in-out property <bool> process-control-supported: false;
+    in-out property <ProcessActionUiState> process-action-state: ProcessActionUiState.idle;
+    in-out property <string> process-action-status: "";
+    in-out property <string> process-action-request-label: "";
+    in-out property <string> process-action-confirm-label: "";
+    in-out property <string> process-action-force-label: "";
+    in-out property <string> process-action-cancel-label: "";
+    in-out property <string> process-action-stop-escalation-label: "";
+    in-out property <string> process-action-dismiss-label: "";
     title: header-title;
     preferred-width: 1120px;
     preferred-height: 720px;
@@ -402,10 +448,12 @@ export component MainWindow inherits Window {
     callback filter-edited(string);
     callback sort-requested(string);
     callback process-selected(string);
+    callback process-action-command(string);
     callback history-range-selected(string);
     callback retry-agent();
     callback language-selected(string);
     callback byte-unit-system-selected(string);
+    callback density-selected(string);
 
     keyboard-shortcuts := FocusScope {
         focus-on-tab-navigation: false;
@@ -495,14 +543,20 @@ export component MainWindow inherits Window {
                 label: root.density-comfortable-label;
                 active: root.density == UiDensity.comfortable;
                 accessible-label: root.density-comfortable-accessible-label;
-                activated => { root.density = UiDensity.comfortable; }
+                activated => {
+                    root.density = UiDensity.comfortable;
+                    root.density-selected("comfortable");
+                }
             }
             density_compact := RangeChoice {
                 width: 74px;
                 label: root.density-compact-label;
                 active: root.density == UiDensity.compact;
                 accessible-label: root.density-compact-accessible-label;
-                activated => { root.density = UiDensity.compact; }
+                activated => {
+                    root.density = UiDensity.compact;
+                    root.density-selected("compact");
+                }
             }
         }
 
@@ -834,6 +888,60 @@ export component MainWindow inherits Window {
                                 }
                             }
 
+                            if root.has-selected-process && root.process-control-supported: Rectangle {
+                                height: root.process-action-state == ProcessActionUiState.idle ? 42px : 68px;
+                                background: #19212b;
+                                border-color: #2c3744;
+                                border-width: 1px;
+                                border-radius: 6px;
+                                VerticalBox {
+                                    padding: 6px;
+                                    spacing: 4px;
+                                    if root.process-action-status != "": Text {
+                                        text: root.process-action-status;
+                                        accessible-label: root.process-action-status;
+                                        color: #d6dee8;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                                        if root.process-action-state == ProcessActionUiState.idle: ProcessActionButton {
+                                            label: root.process-action-request-label;
+                                            activated => { root.process-action-command("request-gentle"); }
+                                        }
+                                        if root.process-action-state == ProcessActionUiState.confirm_gentle: ProcessActionButton {
+                                            label: root.process-action-confirm-label;
+                                            activated => { root.process-action-command("confirm-gentle"); }
+                                        }
+                                        if root.process-action-state == ProcessActionUiState.confirm_gentle: ProcessActionButton {
+                                            label: root.process-action-cancel-label;
+                                            destructive: true;
+                                            activated => { root.process-action-command("cancel"); }
+                                        }
+                                        if root.process-action-state == ProcessActionUiState.waiting_gentle: ProcessActionButton {
+                                            label: root.process-action-stop-escalation-label;
+                                            destructive: true;
+                                            activated => { root.process-action-command("cancel"); }
+                                        }
+                                        if root.process-action-state == ProcessActionUiState.confirm_force: ProcessActionButton {
+                                            label: root.process-action-force-label;
+                                            destructive: true;
+                                            activated => { root.process-action-command("confirm-force"); }
+                                        }
+                                        if root.process-action-state == ProcessActionUiState.confirm_force: ProcessActionButton {
+                                            label: root.process-action-cancel-label;
+                                            activated => { root.process-action-command("cancel"); }
+                                        }
+                                        if root.process-action-state == ProcessActionUiState.finished: ProcessActionButton {
+                                            label: root.process-action-dismiss-label;
+                                            activated => { root.process-action-command("dismiss"); }
+                                        }
+                                    }
+                                }
+                            }
+
                             if root.has-selected-process: Rectangle {
                                 height: root.density == UiDensity.compact ? 96px : 124px;
                                 background: #19212b;
@@ -1070,6 +1178,7 @@ export component MainWindow inherits Window {
 
                     HorizontalLayout {
                         height: 32px;
+                        spacing: 8px;
                         Text { text: root.nav-storage-label; accessible-label: root.nav-storage-label; color: #edf2f7; font-size: 19px; }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
                         Text { text: root.volume-count; accessible-label: root.volume-count; color: #8493a5; font-size: 12px; vertical-alignment: center; }

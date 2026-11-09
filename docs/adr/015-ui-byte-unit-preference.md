@@ -2,7 +2,9 @@
 
 - **Status:** Aceita; IEC continua como padrão para preservar a apresentação existente
 - **Data:** 2026-11-07
-- **Referências:** plano mestre, seções 3.4–3.5 e incremento M7.
+- **Referências:** plano mestre, seções 3.4–3.5 e incremento M7; a preferência
+  de densidade da GUI, que compartilha o arquivo local de configurações, está
+  especificada em [ADR-016](016-persist-ui-density-preference.md).
 
 ## Contexto
 

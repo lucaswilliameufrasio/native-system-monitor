@@ -19,12 +19,12 @@
 | Arquitetura | Monólito modular, package-by-feature | Bibliotecas compartilhadas, múltiplos executáveis locais; não usar microsserviços. |
 | Coleta em segundo plano | **Sim, agente independente** | A GUI é cliente; fechar a janela não interrompe coleta nem exportação. |
 | Acesso privilegiado | **Sim, opcional e explicitamente autorizado** | Helper mínimo separado do processo comum; nenhuma GUI root/admin. |
-| Licenciamento/distribuição | **Open source** | Preferência inicial por GPL-3.0-only (alinhada à opção GPLv3 da Slint), sujeita à auditoria de compatibilidade das dependências. |
+| Licenciamento/distribuição | **MIT aprovado pelo usuário (2026-11-09)** | Esta decisão substitui a proposta GPL-3.0-only original e alinha-se ao metadado `license = "MIT"` em `Cargo.toml`. O usuário confirmou ser o titular, definiu 2026 e autorizou usar o nome de autoria dos commits (`Lucas Eufrasio`); `LICENSE` foi criado. A allow-list de licenças de terceiros ainda requer revisão e aprovação. Não inferir autorização de redistribuição de SDKs. |
 | macOS | **Somente Apple Silicon (arm64)** | Não suportar, compilar, empacotar ou testar macOS Intel. |
 | Linux | x86_64 e aarch64 | Wayland e X11 para a GUI, quando presentes; agente independente do display server. |
 | Windows V1 | **Windows 11 x64** | Instalador, serviço/agente e coleta nativa Windows. |
 | Windows futuro | Windows 10 e Windows ARM64 | Não bloquear a arquitetura; sem promessa de suporte V1. |
-| Mac App Store | **Fora do projeto** | Distribuição direta `.app`/DMG; assinatura Developer ID e notarização oficiais. |
+| Mac App Store | **Fora do projeto** | Distribuição direta `.app`/DMG sem assinatura/notarização, conforme decisão do usuário em 2026-11-09; verificar e documentar avisos/restrições do Gatekeeper sem contornar proteções do sistema. |
 | Observabilidade externa | Prometheus e VictoriaMetrics | `GET /metrics` local e Prometheus Remote Write opcional. |
 | Escopo hardware | CPU, RAM, GPU, discos, SMART, energia, rede, sensores | Contratos explícitos para disponibilidade parcial por fabricante/driver/OS. |
 
@@ -71,7 +71,7 @@
 - **Desktop-first:** suporte a teclado, mouse, touchpad, redimensionamento, múltiplos monitores e HiDPI; mínimo funcional sugerido 960 × 640 pontos lógicos, conforto a partir de 1200 × 760.
 - **Interface nativa sem WebView:** usar Slint + componentes próprios quando necessário, mantendo semântica de acessibilidade e navegação.
 - **Padrão de navegação:** sidebar compacta no desktop grande; modo compacto de ícones em janelas estreitas; detalhes em painel adjacente ou aba contextual, não modais sucessivos.
-- **Densidade configurável:** confortável, compacta e extra compacta. Preferência persistida por usuário.
+- **Densidade configurável:** confortável e compacta estão implementadas com preferência persistida por usuário; a densidade extra compacta segue pendente de definição visual e critérios de UX, sem parâmetros inventados.
 - **Temas:** claro, escuro, seguir sistema e alto contraste. Nunca codificar estado apenas por cor.
 - **Sem elementos decorativos permanentes:** gráficos, números e tabelas são a interface. Evitar cartões de altura excessiva.
 
@@ -326,7 +326,7 @@ Os intervalos são defaults propostos, sujeitos a benchmarking. Cada coletor dec
 - **Discos/volumes:** Disk Arbitration/IOKit, `statfs`, contadores de I/O expostos, bridges para SMART conforme interface. `smartctl` opcional e controlado; Apple SSD interno pode não fornecer todos os atributos de desgaste previstos.
 - **GPU Apple Silicon:** inventário Metal/IORegistry e métricas do sistema onde documentadas; utilização, clocks e watts condicionais. Não depender de frameworks privados/sem contrato de compatibilidade em uma funcionalidade crítica. `powermetrics` pode servir como modo diagnóstico opcional se permitido/compatível e sob helper autorizado; nunca executar continuamente por padrão sem medir overhead.
 - **Energia:** IOPowerSources para bateria e alimentação; estado térmico via API adequada; valores de domínio CPU/GPU/SoC só com fonte auditável. Discharge estimado da bateria **não equivale** à potência AC total do computador.
-- **Agent:** LaunchAgent por usuário; possível LaunchDaemon separado para modo headless autorizado. Assinatura/notarização Developer ID; sem App Store.
+- **Agent:** LaunchAgent por usuário; possível LaunchDaemon separado para modo headless autorizado. Artefatos V1 sem assinatura/notarização, sem App Store; validar/documentar a experiência de abertura no macOS sem contornar Gatekeeper.
 
 ### 6.3 Linux (x86_64 + aarch64)
 
@@ -511,7 +511,7 @@ Este TOML é **exemplo de contrato de configuração**, não configuração vali
 - Se `smartctl` for executável externo, resolver binário confiável em caminho fixo/verificado, passar argumentos como vetor, validar ID de dispositivo, timeout, cap de saída e sandbox quando viável.
 - Windows: conta de serviço mínima, DACL de Named Pipe, UAC, validação de SID/usuário; impedir que usuário sem privilégios consulte dados privados de outras sessões.
 - Linux: UDS com mode 0600 e diretório dono do usuário, polkit para exceções, capabilities granulares se estritamente necessárias. Sem setuid binário genérico.
-- macOS: launchd, Authorization Services/SMAppService ou mecanismo Apple suportado conforme validação de versão, assinaturas de binários, verificação de origem dos helpers e permissões. Não contornar SIP/TCC.
+- macOS: launchd, Authorization Services/SMAppService ou mecanismo Apple suportado conforme validação de versão e permissões. A distribuição V1 escolhida é sem assinatura/notarização; se uma futura função privilegiada depender de binários assinados, reabrir a decisão de distribuição antes de implementá-la. Não contornar SIP/TCC.
 - Configuração de exportação é opt-in; endpoint de pull restrito ao loopback por padrão. Não construir um servidor HTTP de administração aberto em `0.0.0.0`.
 
 ### 10.2 Dados potencialmente sensíveis
@@ -523,7 +523,7 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 - Inventário de dependências, SBOM CycloneDX ou SPDX, `cargo audit`/alternativa mantida, license scanner, advisories e revisão de FFI.
 - Releases versionadas com tags assinadas onde possível, checksum SHA256 e proveniência verificável, CI segregada de segredos de assinatura.
 - Análise de threat model STRIDE dos três canais (GUI↔agente, agente↔helper, agente↔destino remoto); fuzz de parser IPC/config/SMART JSON.
-- Relatório de vulnerabilidade `SECURITY.md`, SLA de triagem da comunidade e política de atualização segura.
+- Instruções de reporte de vulnerabilidade (`SECURITY.md`) e política de atualização segura. Não presumir canal privado nem SLA: esses compromissos são opcionais e só existem se o projeto os adotar explicitamente.
 - Instalação, atualização e desinstalação garantem limpeza de serviços e helper, sem deixar auto-start órfão, tokens em logs nem serviço privilegiado antigo.
 
 ## 11. Histórico, estado e concorrência
@@ -542,21 +542,147 @@ Nomes/caminhos/argumentos de processos, nomes de rede, IPs, serial de disco, hos
 
 ### Acompanhamento de implementação
 
-**Atualizado em 2026-11-07.** Estados abaixo refletem evidências presentes no
+**Atualizado em 2026-11-09.** Estados abaixo refletem evidências presentes no
 repositório; CI verde não substitui ensaio visual, hardware real ou critérios de
 aceite que ainda não foram executados.
 
 | Incremento | Estado | Evidência / pendência principal |
 |---|---|---|
-| M0 — Fundamentos executáveis e validação Slint | Parcial | Workspace, GUI/agent/CLI, IPC, ADRs e CI Linux/macOS/Windows existem. QA isolado em Ubuntu 24.04/Xvfb/Slint software cobriu startup, Storage e navegação/filtro. Um teste local de 1.200 amostras confere downsampling para até 72 pontos e preservação de picos, sem medir renderização/p95; spikes de acessibilidade e renderer alternativo, screenshots por OS e validação nativa completa continuam pendentes. |
-| M1 — Processos, CPU e memória | Parcial | Coleta, IPC, busca/ordenação, gráficos, ciclo de vida por usuário, identidade PID + início e seleção de detalhes implementados; testes headless e CI multiplataforma passam. O teste release de 10k processos mediu query + protobuf p95 de 0,97 ms (máx. 1,46 ms) nesta medição local; isso não mede latência/renderização da UI. No smoke da VM, filtro sintético mostrou 1 resultado, 0 sem correspondências e restaurou os 180 processos visíveis ao limpar. Faltam budgets de interação e validação nativa por OS. |
+| M0 — Fundamentos executáveis e validação Slint | Parcial | Workspace, GUI/agent/CLI, IPC, ADRs e CI Linux/macOS/Windows existem. QA virtual em Ubuntu 24.04/Xvfb/Slint software cobriu startup, Storage, navegação/filtro, pt-BR/en-US, SI/IEC e tamanhos 960×640, 1120×720 e 1200×760; um espaçamento visual encontrado foi corrigido com regressão Slint. O renderer `winit-femtovg` iniciou sob Mesa software e a árvore AccessKit foi observada via AT-SPI Linux, sem leitor de tela real ou GPU. O benchmark UI sintético também mediu sort/render de 10k processos e gráficos raw/downsampled abaixo dos budgets no rasterizador Slint software; input-to-frame nativo e flamegraph ainda faltam. Capturas por OS, validação nativa e acessibilidade assistiva completa continuam pendentes. |
+| M1 — Processos, CPU e memória | Parcial | Coleta, IPC, busca/ordenação, gráficos, ciclo de vida por usuário, identidade PID + início e seleção de detalhes implementados; testes headless e CI multiplataforma passam. Três execuções release pós-persistência da UI com renderer software (2026-11-08) mediram p95 de sort/render de 10k linhas em 51,669–52,734 ms (máximo 74,420 ms), filtro de 10k para uma linha em 16,749–16,871 ms (máximo 23,521 ms), gráfico raw de 1.200 pontos em 21,062–21,512 ms (máximo 22,264 ms) e downsampled em 16,741–17,334 ms (máximo 17,791 ms). As metas passaram nesse pipeline sintético, não são input-to-frame nativo nem GUI winit real. O benchmark IPC separado de 10k mediu query + protobuf p95 de 1,015/1,158/1,152 ms. QA visual/interativa Ubuntu 24.04 x86_64 verificou um processo sintético aparecer filtrado na GUI, ser encerrado e desaparecer do snapshot e da tela; captura pós-encerramento mostra estado vazio. Encerrar a GUI QA deixou o agente separado ativo (IPC 1.10). Perf/flamegraph, validação nativa por OS e GPU física seguem pendentes. |
 | M2 — Desempenho, disco e rede | Em andamento | Publicado em `786314d` (volumes + taxas RX/TX), `2719eb7`/`b60444b`/`0c73bb4` (I/O físico Linux e correções multiplataforma), `5fa373f` (I/O por filesystem/volume) e `3725531` (latência média Linux por deltas de `/proc/diskstats`, IPC, GUI/CLI); CI `40289499003` passou em Linux, macOS e Windows. I/O/IOPS/busy-time/latência Linux seguem separados dos volumes. `scripts/validate-linux-block-io.sh` compara taxas do agente com amostras independentes e timestampadas de `/sys/class/block/*/stat`, em carga opt-in limitada a 256 MiB, com arquivo temporário limpo por trap. Ensaios locais limitados de escrita em Btrfs compararam taxas do agente com deltas independentes de sysfs e confirmaram tendência/unidade em ordem de grandeza; não são taxas precisamente alinhadas nem benchmark de capacidade, devido a I/O concorrente e camadas/filesystems. `scripts/validate-linux-network.py` gera somente tráfego loopback limitado e compara taxas do agente com `/proc/net/dev`; smoke local limitado comparou o tráfego loopback do agente com `/proc/net/dev` e confirmou tendência/unidade em ordem de grandeza, sem constituir benchmark nem validar outras interfaces ou sistemas. CI `40413996153` passou em Linux/macOS/Windows. Isso não é benchmark nem valida outras interfaces/OS. Hotplug real, validação semântica por OS e adaptadores nativos macOS/Windows seguem pendentes. |
 | M3 — GPUs, VRAM e sensores | Parcial | Publicado em `6bd63bb`, CI `40304637425` passou em Linux/macOS/Windows. Primeira fatia Linux/NVIDIA implementada com NVML dinâmico opcional; UUID, modelo, utilização, VRAM, temperatura, clocks e potência opcional percorrem domínio, IPC, GUI e CLI (`devices --type gpu`). O collector detecta driver/hardware ausente sem derrubar o agente e mantém campos sem suporte ausentes. Teste de collector e smoke agente→IPC→CLI com hardware NVIDIA real foram registrados em evidência anterior. Revisão local 2026-11-07 fez GUI e CLI preservar o estado não-`ok` quando há métricas de GPU válidas junto de falha parcial; integração Slint verifica a mensagem na página Performance e teste CLI verifica a política de impressão. A primeira tentativa de localizar o elemento GUI usou Overview e não é reprodução válida pré-correção. Fronteira interna fake do NVML verifica enumeração multi-GPU/IDs distintos, falha global, falhas parciais com preservação, zero dispositivos e opcionais ausentes. A capability matrix lista NVIDIA, AMD, Intel e Apple Silicon separadamente; só NVIDIA Linux pode aparecer `supported` quando NVML enumera hardware. AMD Linux tem adapter experimental por sysfs `amdgpu`, integrado ao snapshot, mas continua `unsupported` até homologação real. [ADR-014](adr/014-linux-intel-gpu-telemetry.md) define Level Zero Sysman opcional e rejeita DRM `fdinfo` para agregados device-wide; adapter Intel Linux experimental implementa descoberta e métricas best-effort, mas `gpu_intel` continua `unsupported` até homologação em hardware real. Apple Silicon e outros runtimes também seguem sem adapters. Fixtures não substituem homologação em hardware AMD/Intel real. |
 | M4 — Saúde do disco, energia e bateria | Parcial | Primeira fatia Linux somente leitura de bateria em `/sys/class/power_supply`: estado, capacidade, energia, potência, temperatura e ciclos opcionais percorrem domínio, IPC, GUI e CLI (`devices --type battery`). Fixtures cobrem unidades, ausência e dados inválidos; smoke agente→IPC→CLI enumerou uma bateria real, mantendo temperatura não fornecida como ausente. SMART/NVMe, adapters macOS/Windows, alertas/histerese e validação em mais hardware seguem pendentes. |
-| M5 — Prometheus, VictoriaMetrics e histórico avançado | Parcial | Pull OpenMetrics 1.0 em `crates/exporters`: `/metrics` loopback opt-in, snapshot existente, aliases sem dados privados, campos ausentes omitidos, allowlist tipada e métricas de saúde. Scrapes concorrentes (4), cabeçalho (4 KiB), timeout (2 s) e séries (128 dispositivos, 512 CPUs) limitados; CI `40318138924` passou em Linux/macOS/Windows para a versão anterior do exporter. Remote Write v1 codifica protobuf+Snappy e envia snapshots via cliente HTTPS sem redirects; opt-in, HTTP só em loopback, intervalos e fila validados, fila FIFO em memória bounded, backoff/jitter e Retry-After delta-seconds limitado; erros permanentes 4xx descartam lote. `/metrics` expõe enabled, fila (lotes/bytes), sucessos, retries, rejeições, descartes e timestamp do último sucesso; contadores usam OpenMetrics `counter` e os valores são voláteis. Gate local completo para `253cae9` passou (fmt, Clippy, testes workspace, build e laboratório/config); CI `40384814605` passou. A fatia de métricas de fila/status em `78afbe0` passou o gate local completo e CI `40385844421` passou; atualização documental `372f399` também passou no CI `40386053918`. Laboratórios isolados confirmaram `native_monitor_cpu_utilization_ratio` via API de séries VictoriaMetrics v1.154.0 e via API de consulta Prometheus v3.15.1 com `--web.enable-remote-write-receiver`; container/rede próprios removidos. O novo laboratório Prometheus em `2dc655a` passou CI `40389053378` em Linux/macOS/Windows, além de passar localmente. Permanecem credential stores/rotação/revogação, spool durável e destinos autenticados. ADR-010 e ADR-011. |
-| M6 — Gestão avançada de processos | Em andamento | Primeira fatia somente de leitura definida em ADR-012: operação IPC minor 9 consulta uma árvore num snapshot por identidade PID + hora de início; BFS mantém raiz primeiro e limite configurado, stale identity retorna `process_not_found`, truncamento é explícito, e CLI `process-tree PID:START_UNIX_SECONDS` imprime a hierarquia. A GUI consulta o mesmo RPC apenas com processo selecionado e exibe árvore indentada, erro/truncamento e atualização a cada 5 s; sem seleção, não há RPC de árvore. Teste desktop cobre profundidade/ordem BFS; testes IPC cobrem descendentes, PID reutilizado e truncamento. Gate local completo e CI `40411000960` passaram em Linux, macOS e Windows. Smoke agente→IPC→CLI real passou para PID 1, incluindo identidade exata e árvore limitada. Nenhum sinal, elevação de privilégio ou exposição de command line/caminho é incluído; encerramento, detalhes sensíveis, auditoria e helper permanecem pendentes. |
-| M7 — Design, acessibilidade e estabilidade V1 | Em andamento | Primeira fatia de semântica Slint adiciona tab-list para navegação, tabs com estado selecionado, ações acessíveis em navegação/faixas/ordenação/linhas de processos, label explícito no filtro, role list-item e anúncio polite do status do agente. Atalhos `Ctrl+1` a `Ctrl+5` navegam pelas cinco páginas via `FocusScope` e são anunciados visualmente na sidebar; integração despacha eventos de teclado do backend e verifica `Ctrl+5`/`Ctrl+2`. Alternância de densidade confortável/compacta em pt-BR/en-US está disponível no cabeçalho e é apenas de sessão: modo compacto reduz margens, espaçamento, altura da navegação e das linhas/detalhes da lista de processos; teste de integração clica nos dois modos e verifica a transição. Gráficos de CPU e memória agora expõem papel de imagem e resumo acessível localizado com número de amostras, mínimo, máximo e valor mais recente; NaN/infinito são omitidos e estado sem amostras é descrito. Testes unitários cobrem resumo/valores não finitos; a integração verifica papel/label do gráfico e os papéis, rótulos e estados selecionados da navegação, campo de filtro, cabeçalho de ordenação e linha de processo pelo backend Slint. Fatias recentes localizam estado vazio e rótulos de acessibilidade da lista de processos, descrições de ordenação e nomes IOPS, corrigem contagens singular/plural de volumes/interfaces/processos e testam rótulos de histórico pt-BR/en-US e singular/plural de processos. Contraste medido no texto lateral pequeno: `#718197`/`#171e27` era 4,23:1; substituído por `#8292a5`/`#171e27` em 5,28:1. i18n parcial pt-BR/en-US em `f9f21cf`: detecção inicial por localidade do sistema, fallback pt-BR, seletor manual só durante a sessão e páginas principais/estados dinâmicos comuns localizados. Gate local completo com 25 testes desktop e CI `40441238528` passaram em Linux, macOS e Windows; regressão de semântica de abas, filtro e ordenação passou no gate e CI `40442957228` em Linux/macOS/Windows; teste da linha de processo verifica role, seletividade e atualização da seleção, passou no gate local e CI `40444000507` em Linux/macOS/Windows. A integração também verifica que aba e label acessível da linha acompanham a troca pt-BR→en-US; teste direcionado e gate local completo passaram; CI nova não foi executada. Ainda faltam catálogo externalizado/pluralização geral, revisão linguística, inspeção integral de mensagens/estados, teste visual por OS, validação manual de foco/leitor de tela em backends nativos, auditoria integral de contraste ou soak. |
-| M8 — Release público e manutenção | Em andamento | `CONTRIBUTING.md` registra toolchain e gate exatos do CI, layout, ensaio de performance opt-in, laboratórios locais e limites de segurança. MIT autorizado e `Cargo.toml` atualizado em `f9f21cf`; `LICENSE` e metadados de copyright aguardam confirmação do titular e ano. Também falta definir canal privado de divulgação (nenhum `SECURITY.md` nem recurso GitHub de divulgação configurado foi verificado). Empacotamento, identidade de assinatura/notarização, SBOM verificável, checksums/proveniência e homologação de instalação/upgrade/desinstalação por OS continuam pendentes. |
+| M5 — Prometheus, VictoriaMetrics e histórico avançado | Parcial | Pull OpenMetrics 1.0 em `crates/exporters`: `/metrics` loopback opt-in, snapshot existente, aliases sem dados privados, campos ausentes omitidos, allowlist tipada e métricas de saúde. Scrapes concorrentes (4), cabeçalho (4 KiB), timeout (2 s) e séries (128 dispositivos, 512 CPUs) limitados; CI `40318138924` passou em Linux/macOS/Windows para a versão anterior do exporter. Remote Write v1 codifica protobuf+Snappy e envia snapshots via cliente HTTPS sem redirects; opt-in, HTTP só em loopback, intervalos e fila validados, fila FIFO em memória bounded, backoff/jitter e Retry-After delta-seconds limitado; erros permanentes 4xx descartam lote. `/metrics` expõe enabled, fila (lotes/bytes), sucessos, retries, rejeições, descartes e timestamp do último sucesso; contadores usam OpenMetrics `counter` e os valores são voláteis. Gate local completo para `253cae9` passou (fmt, Clippy, testes workspace, build e laboratório/config); CI `40384814605` passou. A fatia de métricas de fila/status em `78afbe0` passou o gate local completo e CI `40385844421` passou; atualização documental `372f399` também passou no CI `40386053918`. Laboratórios isolados confirmaram `native_monitor_cpu_utilization_ratio` via API de séries VictoriaMetrics v1.154.0 e via API de consulta Prometheus v3.15.1 com `--web.enable-remote-write-receiver`; container/rede próprios removidos. O novo laboratório Prometheus em `2dc655a` passou CI `40389053378` em Linux/macOS/Windows, além de passar localmente. Vault auto-hospedado foi escolhido como destino de custódia, mas integração, identidade de acesso, rotação/revogação e recuperação ainda não foram definidas. O spool durável deve ficar no diretório de estado da aplicação por usuário; limites, retenção, caminho por OS, recuperação, limpeza e ativação seguem pendentes. A implementação atual mantém fila volátil. ADR-010 e ADR-011. |
+| M6 — Gestão avançada de processos | Em andamento | Consulta da árvore somente de leitura (IPC minor 9, ADR-012) permanece separada do controle. A primeira fatia de controle foi aprovada em ADR-017: IPC tipado minor 11, PID + início, permissões normais do agente, revalidação, `pidfd` no Linux quando disponível, `SIGTERM`/`SIGKILL` em Unix e caminho nativo Windows que tenta `WM_CLOSE` antes da força. GUI pt-BR/en-US exige confirmação gentil, espera monotônica de 5 s, nunca força automaticamente e só então oferece segunda confirmação; eventos locais registram hora/PID/início/ação/resultado sem command line. Testes locais cobrem controlador com fixtures próprios, dispatch IPC para fixtures, round-trip tipado, prazo e interação dos botões. O gate local de 2026-11-09 passou; Windows/macOS nativos e QA visual da jornada continuam pendentes. A identidade disponível tem granularidade de segundos, portanto não promete proteção atômica contra PID reuse onde a API não vincula a ação a handle estável; reavaliar esse risco após ensaios nativos. Helper, elevação, outras contas, prioridades e auditoria/retenção além do sink local seguem fora da primeira fatia e exigem decisões próprias. |
+| M7 — Design, acessibilidade e estabilidade V1 | Em andamento | Semântica e navegação Slint, atalhos `Ctrl+1–5`, estados acessíveis de filtro/ordenação/processo e resumos de gráficos estão cobertos por testes unitários/integração; os catálogos pt-BR/en-US cobrem páginas e estados principais. As escolhas SI/IEC e confortável/compacta agora persistem em `ui-settings.toml`, com IEC/confortável como padrões (ADRs 015–016); “extra compacta” segue fora até haver limites visuais definidos. A paleta dark examinada passou AA de texto normal, com mínimo estático de 4,98:1; isso não verifica contraste não textual nem screenshot. Benchmark Slint software passou os budgets sintéticos registrados em M1. Gate local após persistência: 151 testes aprovados, 0 falhas, 2 ensaios manuais ignorados; não houve CI nova nem QA nativa. Faltam revisão linguística integral, QA nativa por OS, leitores de tela reais, foco/HiDPI, estados/temas claros ou de alto contraste e soak/update/reboot/sleep. |
+| M8 — Release público e manutenção | Em andamento | `CHANGELOG.md` tem resumo `[Unreleased]`; `CONTRIBUTING.md` registra toolchain, gates com `--locked`, auditoria manual e geração CycloneDX local. CI executa `cargo audit` na perna Linux e usa `--locked` em Clippy/testes/build, com pins SHA completos. O workflow não foi executado remotamente nem validado por linter YAML local. Auditoria corrigiu `pulldown-cmark` 0.13.5 → 0.13.6 e `async-executor` 1.14.0 → 1.14.1; `cargo audit` atualizado não encontrou vulnerabilidades/yanked, mas reporta seis dependências transientes não mantidas. MIT foi aprovado pelo usuário em 2026-11-09 e `LICENSE` usa `Copyright (c) 2026 Lucas Eufrasio`, conforme autorização para usar a autoria dos commits. `cargo deny check licenses` ainda requer revisão e allow-list aprovada. SBOMs CycloneDX locais foram regenerados para os 13 pacotes do workspace, incluindo `native-monitor-process-control`; as referências `file://` continuam locais, e os arquivos não são release artifacts. Não há SLA/canal privado de disclosure adotado nem são pré-requisitos genéricos de open source; as instruções de reporte devem refletir os mecanismos realmente escolhidos pelo projeto. Checksums/proveniência e homologação de instalação/upgrade/desinstalação por OS continuam pendentes. O usuário escolheu artefatos macOS sem assinatura/notarização; validar/documentar a experiência do Gatekeeper. Outros tipos de assinatura permanecem conforme decisões específicas de distribuição, não como requisito universal para publicar o código open source. |
+
+**Auditoria de dependências M8 (2026-11-08):** `cargo audit` 0.22.2 atualizou
+`rustsec/advisory-db` para o commit `7a40350e` (2026-11-08). A primeira varredura
+encontrou `RUSTSEC-2026-0433` (CVSS 7.5) em `pulldown-cmark 0.13.5`, incluído por
+Slint e também presente no parser de comentários de build do `prost-build`; a
+resolução dry-run aceitou o patch 0.13.6, e `Cargo.lock` foi atualizado somente
+nessa dependência. A primeira varredura posterior, com banco atualizado, não
+encontrou vulnerabilidades, mas manteve seis avisos de crates não mantidos e um
+aviso de versão yanked. `async-executor 1.14.0` tinha patch 1.14.1 compatível no
+dry-run e foi atualizado no lock; uma nova varredura atualizada não encontrou
+vulnerabilidades nem versões yanked, restando seis avisos de manutenção. O
+`bincode` avisado não aparece no grafo ativo `cargo tree --target all -e all`;
+`async-executor` está ativo no grafo Slint/AccessKit.
+Os demais avisos são transitivos do stack Slint/winit/AT-SPI; não foram ignorados
+nem removidos por supressão. `bincode` é dependência opcional de
+`typed-index-collections` atrás da feature `bincode`, que não é ativada no grafo
+de features do workspace; ainda assim o pacote permanece no `Cargo.lock` e é
+apontado por `cargo audit`. `slint` e `slint-build` 1.18.1 eram as versões
+estáveis mais recentes no crates.io em 2026-11-08, então não há patch estável
+dos pais diretos para testar contra esses avisos. A verificação
+`cargo deny check licenses` foi
+executada sem configuração de projeto e falhou porque nenhuma licença, inclusive
+MIT/Apache/BSD/Unicode/Zlib, está explicitamente allowlisted. É resultado
+inconclusivo até haver política aprovada, não constatação de licença proibida.
+Gate local após a atualização passou: fmt, Clippy, workspace tests (**149
+aprovados, 0 falhas, 2 verificações manuais ignoradas**) e build `--locked`.
+`cargo deny check advisories bans sources`, sem configuração específica,
+terminou com `advisories FAILED`, `bans ok`, `sources ok`: cinco avisos ativos de
+crates não mantidos (`pin-utils`, `ttf-parser`, `zbus_names`, `zvariant` e
+`zvariant_derive`) são tratados como erro pelo deny; `bincode`, sexto aviso do
+`cargo audit` no lockfile, não aparece no grafo `cargo tree --target all -e all`.
+`bans`/`sources` emitiram avisos de versões transitivas duplicadas. Ainda faltam
+política/relatório e scanner de licenças aprovados, tratamento sustentado dos
+avisos transitivos, SBOM vinculado a artefatos de release e CI de supply chain.
+
+**Rechecagem local RustSec (2026-11-09):** `cargo audit --no-fetch` verificou o
+`Cargo.lock` atualizado usando a cópia local de 1.422 advisories; não encontrou
+vulnerabilidades nem versões yanked. Repetiu seis avisos de manutenção
+(`bincode`, `pin-utils`, `ttf-parser`, `zbus_names`, `zvariant` e
+`zvariant_derive`). Como não houve `--fetch`, esta evidência não afirma que a base
+esteja atualizada para a data da execução.
+
+**Workflow de auditoria M8 (2026-11-08):** `.github/workflows/ci.yml` instala
+`cargo-audit 0.22.2` e executa `cargo audit` somente na perna Linux, com
+`permissions: contents: read` já definido. Clippy, testes e build também exigem
+`--locked`, alinhados a `CONTRIBUTING.md`. A versão 0.22.2 é a versão estável
+mais recente verificada no crates.io em 2026-11-08 (`rust-version = 1.88`, abaixo
+do Rust 1.98.1 do projeto). As ações mantêm SHA completos e ambos os refs foram
+resolvidos nas APIs de tags dos repositórios canônicos: `actions/checkout`
+`v7.0.1` (`3d3c42e5…`) é o release estável mais recente, commit verificado como
+assinado; `actions-rust-lang/setup-rust-toolchain` `v2.0.1`
+(`a188e68d…`, publicado em 2026-11-02) é o release estável mais recente, commit
+sem assinatura. A página oficial de advisories do checkout declara não haver
+advisories publicados; para setup-rust-toolchain a rota do repositório retornou
+404 e a busca pública não encontrou resultado, portanto não foi possível
+confirmar ausência de advisories. Fontes consultadas em 2026-11-08: [checkout
+releases](https://github.com/actions/checkout/releases), [ref e commit
+checkout](https://api.github.com/repos/actions/checkout/git/ref/tags/v7.0.1),
+[checkout advisories](https://github.com/actions/checkout/security/advisories),
+[setup-rust-toolchain releases](https://github.com/actions-rust-lang/setup-rust-toolchain/releases),
+[ref e commit setup-rust-toolchain](https://api.github.com/repos/actions-rust-lang/setup-rust-toolchain/git/ref/tags/v2.0.1),
+[setup-rust-toolchain advisories](https://github.com/actions-rust-lang/setup-rust-toolchain/security/advisories),
+[GitHub secure-use](https://docs.github.com/en/actions/reference/security/secure-use)
+e [cargo-audit no crates.io](https://crates.io/crates/cargo-audit). `cache:
+false` desativa a etapa interna de cache do setup action. O diff foi inspecionado
+manualmente; `actionlint`, `yamllint`, `yq`, Ruby e PyYAML não estão disponíveis,
+nenhum foi instalado, e não houve execução do GitHub Actions nesta fatia.
+Portanto, CI de advisories está implementada no arquivo, mas sua execução remota
+ainda não foi verificada.
+
+**SBOM M8 local (2026-11-08):** `cargo-cyclonedx` 0.5.10, release estável mais
+recente verificado no crates.io (Rust mínimo 1.86), gerou JSON CycloneDX 1.5 com
+`--target all` e features padrão para os 12 pacotes do workspace. Foram
+inspecionadas 12 saídas, somando 1.345 entradas de componentes (com dependências
+repetidas entre SBOMs por pacote). Validação local em Python 3.13.5 confirmou
+JSON parseável, formato/versão, referências únicas e fechamento das referências
+de dependência; `sha256sum --check` passou para as 12 saídas. Artefatos e
+manifesto de hashes estão somente em `target/sbom-2026-11-08/` (ignorado pelo
+Git), pois os `bom-ref`/PURL de componentes do workspace incluem caminho local
+`file://`. Esta checagem estrutural não é validação independente contra o schema
+CycloneDX, auditoria de licenças nem evidência de conteúdo de um binário
+empacotado; não publicar as saídas sem revisar refs, features e vínculo com o
+build de release. O inventário registrou 35 expressões SPDX declaradas distintas
+e nenhum componente sem expressão no BOM; expressões são dados brutos, não
+decisão legal nem allow-list (incluem alternativas `LicenseRef-Slint-*`). O
+instalador do gerador também reportou `xml-rs 0.8.19`
+yanked em seu próprio lock de ferramenta; isso não alterou `Cargo.lock` do
+produto. A geração foi adicionada a `CONTRIBUTING.md`; integração a release/CI,
+SBOM por instalador final e checksums/proveniência continuam pendentes.
+
+**Rechecagem do SBOM local (2026-11-08):** os 12 JSONs parsearam como CycloneDX
+1.5; o inventário total continua em 1.345 componentes incluindo repetições por
+pacote, os SBOMs do desktop incluem `pulldown-cmark 0.13.6` e
+`async-executor 1.14.1`, e `sha256sum --check` passou para todos. Os arquivos
+permanecem locais/ignorados e a ressalva de schema, licença e vínculo a release
+acima permanece.
+
+**Rechecagem do SBOM local (2026-11-09):** após adicionar
+`native-monitor-process-control`, `cargo-cyclonedx 0.5.10` regenerou 13 SBOMs
+CycloneDX 1.5 com `--target all`, agora em `target/sbom-2026-11-09/` (ignorado
+pelo Git). Os 13 JSONs parsearam; a verificação estrutural local conferiu versão,
+refs de dependência fechadas e presença do novo crate, totalizando 1.431
+componentes de nível superior com repetições entre pacotes. `sha256sum --check`
+passou para os 13 arquivos. Isso não é validação independente contra o schema
+CycloneDX, revisão de licenças, SBOM de instalador nem artefato de release; refs
+`file://` continuam específicas deste checkout.
+
+**M6 — primeira fatia de controle de processos (2026-11-09):** implementada
+conforme ADR-017, mantendo a consulta de árvore da ADR-012 somente de leitura.
+O agente aceita apenas ação tipada e PID + início no IPC minor 11, revalida a
+identidade e registra localmente timestamp/PID/início/ação/resultado via tracing,
+sem command line. Linux usa pidfd quando disponível e revalida no fallback; Unix
+usa SIGTERM/SIGKILL. O adapter Windows abre handle e valida creation time, envia
+WM_CLOSE às janelas de topo correspondentes antes de encerrar forçadamente; este
+host Linux não compilou nem executou esse caminho nativamente. A GUI localizada
+em pt-BR/en-US exige confirmação gentil, aguarda cinco segundos monotônicos e só
+oferece força com segunda confirmação, nunca automaticamente. Testes com
+processos-fixture próprios cobrem ações gentil/forçada, identidade stale/ausente
+e dispatch IPC; testes adicionais cobrem enumeração protobuf, prazo e interação
+acessível dos botões. Gate local final: fmt, Clippy, build e workspace tests
+(**163 aprovados, 0 falhas, 2 ensaios manuais ignorados**). Isso não é CI remota,
+QA visual da aplicação em execução nem homologação Windows/macOS. O timestamp de
+início continua com precisão de segundos e não constitui proteção atômica contra
+PID reuse em APIs que não vinculam a ação a um handle estável. A primeira fatia
+não inclui helper, elevação, outras contas, prioridades ou auditoria durável além
+do sink local.
 
 **Evidência visual Linux (2026-10-29):** inspeção do app conectado em workspace privado KWin, Linux x86_64, nos tamanhos 960 × 640 e 1200 × 760. Foram corrigidos título/status truncados, tamanho inicial fixo que impedia redimensionamento real e cartões da visão geral que não cabiam em largura reduzida. A tela de processos e métricas reais também foi observada nos dois tamanhos; capturas ficaram apenas no armazenamento temporário de QA porque incluem nomes/PIDs do host. Isto não homologa Wayland/X11, outros sistemas, HiDPI, temas, leitor de tela ou toda a jornada de entrada: o backend Wayland do `winit` encerrou com panic ao receber dados de ponteiro e a interação de filtro não foi comprovada naquela sessão. A interação foi exercitada depois em uma VM isolada, descrita abaixo; isso não substitui a validação nativa. O teste headless existente cobre seleção, navegação, densidade e idioma, mas não substitui essa validação visual/interativa.
 
@@ -658,6 +784,63 @@ status` reportou `running` e as capturas foram inspecionadas.
   `fixed-filter-match.png`, `fixed-filter-empty.png`,
   `fixed-filter-cleared.png` e `fixed-network-view.png`; todas permanecem fora
   do repo.
+
+**QA visual/interativa Linux em VM QEMU privada (2026-11-08):** QMP confirmou a
+VM ativa. A conta do guest foi recuperada do cloud-init da própria VM; a chave de
+QA local foi conferida contra a chave pública autorizada, e o fingerprint ED25519
+confirmado pelo usuário foi revalidado e fixado apenas no `known_hosts` privado
+desta execução. Guest Ubuntu Server 24.04 x86_64, `Xvfb :99` em 1440 × 900,
+Openbox e renderer Slint `winit-software`; o agente já estava ativo e
+`monitorctl status` reportou `running`, protocolo IPC 1.10. A GUI do checkout
+(`dcd3b98` mais as alterações locais desta QA) foi compilada e copiada ao guest;
+SHA-256 do binário observado: `2b00431d2b2b84d79575b53b20d19cc3b748635c097a579ea82b190198568724`.
+Preferências foram isoladas por `XDG_CONFIG_HOME` privado.
+
+- A primeira tela en-US mostrou agente ativo, métricas, amostras dos gráficos e
+  layout sem cortes aparentes. Alternar para pt-BR atualizou título, páginas,
+  estados, decimais com vírgula e unidades. Screenshots de janela real foram
+  inspecionados em 1120 × 720 e após resize em 960 × 640 e 1200 × 760.
+- Em Processes, filtrar `Xvfb` mostrou 1 processo; uma busca sem correspondência
+  mostrou 0 e a mensagem vazia localizada; limpar o filtro restaurou a lista
+  (185 processos após, contra 186 antes, devido à variação natural de processos
+  do guest). Os atalhos Ctrl+2/Ctrl+4 abriram Processes/Storage.
+- Em Storage, a configuração isolada nova iniciou em IEC. Selecionar SI mudou os
+  valores exibidos para MB/GB e gravou `byte_unit_system = "si"`; após encerrar
+  somente o processo QA e reabrir o binário, SI permaneceu selecionado. Em
+  960 × 640 a lista de dispositivos continuou navegável por scroll.
+- O renderer alternativo `SLINT_BACKEND=winit-femtovg` iniciou em Xvfb com
+  `LIBGL_ALWAYS_SOFTWARE=1`; o processo carregou Mesa GLX/LLVM e produziu a
+  captura inspecionada `femtovg-overview.png`. Isto valida startup/renderização
+  virtual femtovg sobre GL software, não aceleração ou homologação de GPU física.
+- Para a checagem nativa de acessibilidade, `org.a11y.Status.IsEnabled` foi
+  ativado apenas durante a sessão e restaurado ao valor inicial `false`. O
+  processo apareceu no bus AT-SPI; a janela `System Monitor` expôs sua árvore
+  AccessKit (10 filhos) e cache com `Main navigation`, `Processes` e `Total CPU`.
+  Após alternar idioma, o cache expôs `Navegação principal`, `Processos` e
+  `CPU total`. Isto confirma a ponte Linux AT-SPI neste ambiente virtual; não
+  houve validação de fala/interação com Orca ou outro leitor de tela.
+- A revisão visual encontrou o contador de volumes colado ao rótulo “Units”/
+  “Unidades”. A linha de cabeçalho Storage agora define `spacing: 8px`; o teste
+  `clicking_a_process_row_emits_its_pid_and_start_time_identity` verifica a
+  distância geométrica mínima. Remover o espaçamento fez o teste falhar; com a
+  correção ele passou. Capturas posteriores confirmaram o espaçamento em en-US
+  nos três tamanhos e em pt-BR em 1120 × 720 e 1200 × 760.
+- Evidências visuais mantidas fora do repositório e inspecionadas: overview,
+  `current-pt-br.png`, `current-filter-match.png`, `current-filter-empty.png`,
+  `current-filter-cleared.png`, `storage-spacing-1120x720.png`,
+  `storage-spacing-960x640.png`, `storage-spacing-960x640-scrolled.png`,
+  `storage-spacing-1200x760.png`, `storage-spacing-pt-br-1120x720-settled.png`
+  e `femtovg-overview.png`.
+  A regressão geométrica passou após a correção; gate local final: fmt, Clippy,
+  `SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace` (**149 aprovados, 0 falhas,
+  1 teste manual ignorado**) e `cargo build --workspace`. Nenhum fixture
+  adicional foi deixado rodando por esta jornada.
+
+Isto é QA visual/interativa Linux **virtual** com renderer software, não
+homologação de GPU, Wayland, HiDPI físico ou instalação nativa. Screenshots por
+OS, validação nativa multiplataforma e critérios que dependem de hardware real
+continuam pendentes. O binário foi gerado de alterações ainda não commitadas;
+nenhum commit ou push foi feito.
 
 **Checagens complementares M2 (2026-11-07):** no guest, rodei o script existente
 `scripts/validate-linux-block-io.sh` com `--size-mib 8` no filesystem ext4 do disco
@@ -772,18 +955,26 @@ execução em runtime/hardware: o ambiente de validação não disponibilizou ru
 nem hardware Intel para ensaio. Nenhuma CI nova foi executada; `gpu_intel`
 continua `unsupported`.
 
-**Auditoria M0–M8 e fatia local M7 (2026-11-07):** a tabela acima continua sendo
+**Auditoria M0–M8 e decisões atualizadas (2026-11-09):** a tabela acima continua sendo
 o status de aceite; nenhum marco foi promovido a concluído. Há trabalho local
 testável em M0/M1/M7 (renderer/acessibilidade no ambiente Linux, orçamento de
 interação ainda sem limite acordado e cobertura de localização), mas screenshots
 e comportamento nativo de macOS/Windows/Linux exigem os respectivos ambientes.
 M2–M4 ainda combinam adapters/fixtures implementáveis com ensaios de hardware,
 permissão ou OS externo; M3 não pode habilitar Intel/AMD sem homologação real.
-M5 exige decisão de custódia/rotação de credenciais e spool durável; M6 exige
-política explícita de sinais, permissões e helper. M7 também depende de soak,
-update/reboot/sleep e ensaios de acessibilidade/renderer; M8 aguarda confirmação
-do titular/ano da licença, canal privado de divulgação, identidade de assinatura
-e validação de instaladores por OS. A fatia M7 corrige “Swap” para “Memória swap”
+M5 tem Vault auto-hospedado e diretório de estado por usuário para o spool
+escolhidos, mas exige definir integração/ciclo de vida de credenciais e limites,
+retenção e recuperação do spool; M6 já tem
+decisão para a primeira fatia sem privilégio adicional, mas ainda exige ensaios
+nativos por OS e decisão própria caso helper, outras contas ou prioridades sejam
+retomados. M7 também depende de soak,
+update/reboot/sleep e ensaios de acessibilidade/renderer; M8 tem titular/ano,
+aviso MIT e `LICENSE` definidos, mas aguarda revisão/allow-list de licenças de
+terceiros e validação de instaladores por OS. Não se estabeleceu SLA
+nem canal privado de disclosure; estes não são tratados como pré-requisitos
+genéricos de open source. Assinatura/notarização continuam vinculadas aos formatos
+de distribuição específicos registrados abaixo; para macOS, a decisão atual é não
+assinar nem notarizar os artefatos. A fatia M7 corrige “Swap” para “Memória swap”
 em pt-BR nos dois layouts responsivos e verifica ambos os idiomas pelo seletor
 no teste de interação Slint; `MetricPanel` expõe o próprio título como rótulo
 acessível. Isto fecha apenas essa string, não o catálogo geral nem M7.
@@ -1189,6 +1380,33 @@ outra frase traduzível inline nesta camada. Isso encerra apenas esta passagem
 estática de textos Slint, não o aceite M7 de acessibilidade/teclado, QA visual e
 nativa, estabilidade ou hardware.
 
+**Auditoria estática de contraste M7 (2026-11-08):** calculada a luminância
+relativa sRGB para os pares efetivamente usados no `main.slint` (superfícies
+neutras, seleção de navegação/processo e seletores ativos, texto secundário,
+estados do agente e acentos textuais das métricas). As combinações amostradas
+atingiram AA para texto normal (mínimo **4,98:1**, `#8190a2` em `#19212b`, nos
+rótulos do eixo do gráfico); outros pequenos rótulos relevantes ficaram em
+5,18:1 (`#8493a5` em `#19212b`) e 5,28:1 (`#8292a5` em `#171e27`). Não foi
+necessária mudança de cor nesta fatia. É uma verificação numérica de cores
+estáticas, não avaliação de screenshot, contraste de bordas/foco (critério
+não textual), paleta light/alto contraste, variação de monitor/tema ou teste por
+leitor de tela; QA visual e acessibilidade assistiva continuam pendentes.
+
+**Persistência da densidade M7 (2026-11-08):** confortável/compacta agora
+compartilham `ui-settings.toml` com SI/IEC, mantendo confortável e IEC como
+defaults. `DensityPreference` valida somente os dois valores já oferecidos; o
+arquivo antigo sem `density` continua válido via serde default. Testes de escrita
+e leitura confirmam que mudar densidade preserva unidade SI e mudar unidades
+preserva densidade compacta; a integração Slint seleciona compacta, recarrega e
+aplica as preferências com a mesma função da inicialização, verifica unidades IEC
+e densidade e depois seleciona confortável. Falha de gravação também foi testada:
+a escolha continua ativa na sessão. ADR-016 registra o escopo e deixa a opção
+extra compacta pendente, sem inventar dimensões. Revalidação local em
+2026-11-08: fmt, Clippy, build e `SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace
+--locked` (**151 aprovados, 0 falhas, 2 verificações manuais ignoradas**);
+`cargo audit --no-fetch` sem vulnerabilidades/yanked, com seis avisos permitidos
+de dependências não mantidas. Nenhuma CI nova ou QA nativa foi executada.
+
 **Bloqueios externos de M2 (separados do QA virtual):**
 
 - **USB físico — bloqueado:** requer mídia removível descartável conectada a um
@@ -1196,13 +1414,15 @@ nativa, estabilidade ou hardware.
 - **macOS Apple Silicon, Windows 11 x64 e Linux ARM64 — bloqueados para runtime:**
   requerem máquinas/sessões nativas; CI de compilação não prova enumeração,
   semântica de I/O, hotplug ou comportamento visual nesses sistemas.
-- **QA visual M7 neste ambiente — bloqueada:** a sessão atual é `tty`, sem
+- **QA visual nativa M7 neste host — bloqueada:** a sessão atual é `tty`, sem
   `DISPLAY`/`WAYLAND_DISPLAY`; o probe read-only não encontrou KWin, Xvfb,
   ferramentas de captura/entrada nem workspace gráfico privado. Nenhuma sessão
-  do usuário foi acessada e nenhuma ferramenta foi instalada. Para screenshots e
-  interação real, é necessário um workspace gráfico privado aprovado ou host de QA
-  com captura e entrada disponíveis; testes Slint de integração não substituem
-  essa evidência.
+  do usuário foi acessada. A QA virtual Ubuntu 24.04/Xvfb com screenshots e
+  interação real em guest isolado está registrada acima e cobre apenas parte da
+  jornada; ela não substitui screenshots/testes nativos por OS. Para isso, é
+  necessário workspace gráfico privado aprovado ou host de QA com captura e
+  entrada disponíveis; testes Slint de integração também não substituem essa
+  evidência.
 
 **Regressão histórica de atualização da GUI:** após o histórico completar a
 janela, uma implementação antiga da localização do rótulo `−5 min` panica ao
@@ -1240,11 +1460,29 @@ foi adicionado ao repositório. A identidade local ainda não detecta troca entr
 ciclos que reutilize mount, filesystem e nome com counters não regressivos
 (ADR-005). M2 permanece em andamento.
 
-**Próxima sequência:** concluir validação nativa/USB quando houver dispositivos e
-ambientes macOS/Windows; depois avançar M3 → M8 em fatias completas e testáveis.
-Não marcar como homologadas capacidades dependentes de hardware, titularidade ou
-decisões de release ainda não confirmadas. Atualizar esta tabela a cada marco
-verificado.
+**Próxima sequência e dependências para fechar M0–M8:** manter as fatias locais
+com gate verificável e atualizar a tabela sem promover marcos por inferência. A
+QA virtual Ubuntu, benchmark de renderer software, auditoria de dependências,
+SBOM local e changelog já foram registrados; não substituem estes itens:
+
+- **Acesso de QA/hardware:** host nativo macOS Apple Silicon, Windows 11 x64 e
+  Linux ARM64; mídia USB descartável autorizada; GPUs reais por família; sessão
+  com Orca/VoiceOver/NVDA; e máquina autorizada para soak de 24–72 h, update,
+  reboot e sleep/wake. Sem esses recursos, M0–M4 e M7 não podem receber aceite
+  nativo/hardware.
+- **Decisões do responsável pelo produto/segurança:** confirmar nome/handle
+  público para o aviso de copyright e aprovar allow-list após revisar as licenças
+  de terceiros; no M5, definir implantação/acesso ao Vault, ciclo de vida das
+  credenciais e limites/retenção/recuperação do spool durável por usuário; somente se a fatia M6
+  for ampliada, política de helper/outras contas/prioridades e auditoria além do
+  sink local; definir instruções de reporte de vulnerabilidades sem assumir SLA
+  ou canal privado; respeitar a decisão de distribuir artefatos macOS sem
+  assinatura/notarização; preparar outras identidades de assinatura apenas se
+  um formato for explicitamente aprovado. Não preencher esses itens por suposição.
+- **Release owner:** após as decisões acima, homologar instaladores, upgrade e
+  desinstalação por OS, vincular SBOM/checksums/proveniência aos artefatos finais,
+  e executar CI remota no branch de entrega. Nenhum commit, push, release ou
+  operação remota foi autorizado nesta continuação.
 
 ### M0 — Fundamentos executáveis e validação Slint
 
@@ -1298,7 +1536,7 @@ verificado.
 
 ### M8 — Release público e manutenção
 
-**Entregas:** installers assinados quando habilitados, macOS Developer ID e notarização, Windows installer e assinatura se disponível, Linux pacotes, docs, CONTRIBUTING, SECURITY, SBOM, changelog, checksums, matriz de hardwares testados, screenshots reais e benchmark publicado.
+**Entregas:** empacotamento macOS sem assinatura/notarização conforme decisão do usuário; Windows installer (assinatura Authenticode apenas se habilitada em decisão própria), Linux pacotes, docs, CONTRIBUTING, SECURITY, SBOM, changelog, checksums, matriz de hardwares testados, screenshots reais e benchmark publicado.
 
 **Aceite:** instalação limpa e upgrade/desinstalação nas plataformas V1; nenhum sensor crítico se declara suportado sem ensaio em hardware real; release não requer credencial externa para rodar; hashes/proveniência disponíveis.
 
@@ -1314,7 +1552,10 @@ verificado.
 
 ## 13. Requisitos não funcionais e benchmarks
 
-**Todos os limites abaixo são *targets provisórios de aceitação*, não medições já feitas.** Normalizar uso de CPU por núcleo lógico e publicar metodologia/hardware; registrar memória RSS, PSS onde possível, alocações, disco e wakeups.
+**Todos os limites abaixo são *targets provisórios de aceitação*.** Resultados medidos
+estão identificados abaixo e não promovem por si só o aceite multiplataforma.
+Normalizar uso de CPU por núcleo lógico; registrar memória RSS, PSS onde possível,
+alocações, disco e wakeups.
 
 | Cenário | Orçamento inicial desejado | Método |
 |---|---|---|
@@ -1345,6 +1586,79 @@ execução foram 0,868 ms, 0,730 ms e 1,314 ms. Ambiente: Linux x86_64, kernel
 7.2.8-2-cachyos, Rust 1.98.1, Intel Core i5-8265U. Isso passa o orçamento do
 caminho medido, mas não altera a ressalva acima sobre o p95 end-to-end da UI.
 
+**Repetição local (2026-11-08):** três execuções release sequenciais do mesmo
+teste, cada uma com 10 aquecimentos e 100 amostras, resultaram em p95 de
+**1,015 ms**, **1,158 ms** e **1,152 ms**, com máximos de **1,207 ms**,
+**1,214 ms** e **1,165 ms**. As três ficaram abaixo do limite de 150 ms do teste.
+Ambiente: Linux x86_64, kernel `6.12.113+deb13-amd64`, Rust 1.98.1, Intel Xeon
+E5-2670 v2 @ 2.50 GHz, 20 CPUs visíveis. O resultado mede apenas query do agente
+e codificação protobuf para a fixture de 10.000 processos e resposta de até
+1.000; não mede transporte completo, pintura, input-to-frame ou p95 da GUI e não
+substitui profiling/renderização nativa requeridos pelo aceite M1.
+
+**Ciclo de vida visual M1 em VM (2026-11-08):** em Ubuntu 24.04 x86_64/X11
+isolado, o `monitorctl processes --limit 1000` confirmou o fixture
+`nsm-ui-live-qa`; a GUI QA exibiu a linha com filtro correspondente. Após
+encerramento controlado do PID sintético, o agente deixou de reportá-lo e a
+captura da GUI mostrou `0 processes visible` e o estado vazio, sem fechar ou
+reiniciar a janela. Em seguida, somente a GUI QA desta rodada foi encerrada após
+verificar PID e caminho exato do executável; `monitorctl status` confirmou que o
+agente separado continuava `running` no protocolo IPC 1.10. Capturas antes/depois
+ficaram fora do repositório em artefatos privados de QA. Isto verifica o ciclo
+visual em Linux virtual e a separação da GUI/agente; não substitui instalação
+limpa, garantia de mesma instância do agente, PID reuse, screenshots/execução
+nativa nos três OS ou reader assistivo real. Nenhum pacote ou permissão foi
+alterado.
+
+**Benchmark UI local (2026-11-08):** o teste manual ignorado
+`tests::ui_performance_budget_10k_processes_and_1200_chart_points` usa o
+`TestingBackend` com rasterizador Slint software real, janela 1120 × 720 e
+fixture determinística. Cada cenário executa 10 aquecimentos e 100 medidas; três
+campanhas release independentes foram executadas sequencialmente. As medidas
+incluem transformação da fixture já preparada, atualização do modelo Slint e
+`Window::take_snapshot()` enquanto a página de destino está visível:
+
+| Cenário | p95 nas três campanhas | Maior amostra observada | Budget |
+|---|---:|---:|---:|
+| Ordenar, converter e renderizar 10.000 linhas | 52,128–52,629 ms | 59,341 ms | ≤150 ms |
+| Filtrar 10.000 e renderizar uma correspondência | 18,320–18,581 ms | 18,822 ms | ≤150 ms |
+| Selecionar painel e renderizar 1.200 pontos raw | 22,536–22,838 ms | 31,793 ms | p95 ≤100 ms; max <250 ms |
+| Selecionar painel e renderizar série downsampled (≤72 pontos) | 18,395–18,551 ms | 25,128 ms | p95 ≤100 ms; max <250 ms |
+
+Ambiente: Linux x86_64, kernel `6.12.113+deb13-amd64`, Rust/Cargo 1.98.1,
+Intel Xeon E5-2670 v2 @ 2.50 GHz, 20 CPUs visíveis, profile `--release`.
+Reproduzir com:
+
+```sh
+SLINT_EMIT_DEBUG_INFO=1 cargo test --locked -p native-monitor-desktop ui_performance_budget_10k_processes_and_1200_chart_points --release -- --ignored --nocapture
+```
+
+As três campanhas passaram as asserções dos budgets. O benchmark injeta 10.000
+linhas direto na UI (sem limite IPC de 1.000), ordena a tabela inteira, filtra
+para uma correspondência e inclui conversão das linhas/modelo. O caso raw do
+gráfico estressa 1.200 elementos; o caso downsampled percorre `select_history`
+com o limite de 72 pontos usado pela aplicação. Fixture cloning, ciclo IPC,
+digitação real, despacho pelo event loop nativo, apresentação do frame pelo SO,
+GPU física, CPU/RSS e freeze da janela de produção não são medidos; o tempo
+sincrônico de snapshot é uma proxy restrita, não prova input-to-frame. `perf`,
+`samply` e ferramentas FlameGraph não estão instaladas neste host; nenhum
+profiler, permissão ou pacote foi alterado. Probe read-only em 2026-11-08:
+EUID 1000, `/proc/sys/kernel/perf_event_paranoid=3`, BTF do kernel presente;
+sem ferramenta de captura e sem autorização para alterar permissões/sysctls,
+profiling fica bloqueado neste host. Portanto, o target passou no rasterizador
+virtual para essa fatia, mas profiling/flamegraph e validação visual de
+responsividade em backends/OS nativos permanecem pendentes.
+
+**Revalidação do benchmark após persistência M7 (2026-11-08):** três novas
+execuções sequenciais do mesmo comando, no mesmo Linux x86_64, kernel
+`6.12.113+deb13-amd64`, Rust 1.98.1, Intel Xeon E5-2670 v2 @ 2.50 GHz e 20 CPUs
+visíveis, passaram todas as asserções. p95/max observados: ordenar/renderizar
+10.000 linhas **51,669–52,734 / 74,420 ms**; filtrar/renderizar **16,749–16,871 /
+23,521 ms**; gráfico raw de 1.200 pontos **21,062–21,512 / 22,264 ms**; série
+downsampled **16,741–17,334 / 17,791 ms**. Máximos seguem abaixo dos budgets
+correspondentes. O teste continua limitado ao renderer Slint software e não
+fecha o critério de input-to-frame, profiler ou QA nativa.
+
 **Comparações:** Windows 11 Task Manager, macOS Activity Monitor e alternativas Linux (`gnome-system-monitor`, `mission-center`, `btop` para cenários representativos). Comparar carga da própria ferramenta sob refresh equivalente; não comparar números de memória com ferramentas que usam definições diferentes sem documentar.
 
 **Cenários de carga:** idle estável, compilação pesada, 10k processos sintéticos, SSD sob fio de leitura/gravação controlado sem desgaste excessivo, tráfego de rede controlado em loopback, GPU benchmark apropriado/curto, troca de bateria/tomada, tela bloqueada, múltiplos monitores, high DPI, hotplug GPU/USB quando possível e simulador de driver ausente.
@@ -1361,7 +1675,7 @@ caminho medido, mas não altera a ressalva acima sobre o p95 end-to-end da UI.
 - **E2E GUI:** navegação teclado, filtros, colunas, densidade, empty/loading/error states, persistência de preferência, multimonitor, acessibilidade pt-BR/en-US, screen reader.
 - **Exportador:** golden fixtures OpenMetrics, protobuf conformance, headers/schemas, VictoriaMetrics de teste, Prometheus scrape, 5xx/429/401/400, TLS inválido, fila cheia, expiração e retomada.
 - **Segurança:** DACL/Unix socket identity, read cross-user, comandos helper não allowlisted, TOCTOU PID reuse, injeção de flags/caminho, executável substituído, symlink races, negação de serviço por cliente lento, fuzz IPC e parsing.
-- **Distribuição:** assinatura/notarização, revogação de helper, upgrade/rollback, limpeza uninstaller, pacote em máquina limpa sem Rust/toolchain ou driver SDK instalados.
+- **Distribuição:** verificar abertura/Gatekeeper para os pacotes macOS sem assinatura escolhidos, upgrade/rollback, limpeza uninstaller e pacote em máquina limpa sem Rust/toolchain ou driver SDK instalados. Revogação de helper só se um helper vier a ser adotado.
 
 ### 14.2 Matriz de hardware real mínima
 
@@ -1393,7 +1707,7 @@ caminho medido, mas não altera a ressalva acima sobre o p95 end-to-end da UI.
 
 ### 16.1 Open source
 
-- **Proposta:** GPL-3.0-only para o produto, sujeita a revisão jurídica, revisão das licenças de Slint, sysinfo, drivers SDK, smartmontools e bindings FFI. Slint oferece GPLv3 e outras opções; dependências e binários de SDKs de fabricantes não devem ser redistribuídos por inferência.
+- **Licença de produto:** MIT foi aprovada pelo usuário em 2026-11-09 e substitui a proposta inicial GPL-3.0-only; o metadado `Cargo.toml` declara MIT e `LICENSE` contém `Copyright (c) 2026 Lucas Eufrasio`, conforme autorização do titular para usar a autoria dos commits. Ainda é necessário revisar/aprovar allow-list das licenças das dependências (incluindo Slint, sysinfo, SDKs de drivers e bindings FFI). A escolha de MIT para o produto não autoriza redistribuir SDKs/binários de terceiros por inferência.
 - Incluir LICENSE, SPDX headers, NOTICE/third-party notices quando aplicável, SBOM e política de contribuição; exemplos e documentação com licenças explicitadas.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, templates Issue/PR, guidelines de hardware report, roadmap público e definição clara de compatibilidade experimental.
 
@@ -1401,12 +1715,12 @@ caminho medido, mas não altera a ressalva acima sobre o p95 end-to-end da UI.
 
 | OS | Artefato V1 | Inicialização do agente | Cuidados |
 |---|---|---|---|
-| macOS arm64 | `.app` + `.dmg` assinados Developer ID, notarizados | LaunchAgent do usuário; daemon opt-in para system mode | Hardened Runtime, assinaturas dos binários, remover helper no uninstall. |
+| macOS arm64 | `.app` + `.dmg` sem assinatura/notarização, conforme decisão do usuário (2026-11-09) | LaunchAgent do usuário; daemon opt-in para system mode | Verificar e documentar avisos/restrições do Gatekeeper; não contornar proteções; validar que o modo de distribuição sem assinatura funciona nas versões alvo. |
 | Windows 11 x64 | `.msi` via WiX ou instalador equivalente; zip portátil sem serviço como alternativa limitada | Agente via tarefa de logon do usuário; Windows Service LocalService só no modo sistema opt-in | Assinatura Authenticode quando disponível; não instalar serviço em modo portátil sem permissão. |
 | Linux x86_64 | `.deb`, `.rpm`, AppImage | systemd --user, helper polkit opcional | deps runtime/versionadas, Wayland/X11, sufixos de pacote e uninstall. |
 | Linux aarch64 | `.deb`, `.rpm`, AppImage se homologado | idem | binary/ABI nativo e GPU/sensores explicitamente condicionais. |
 
-**Atualizações:** GitHub Releases assinado/checksum, changelog e notificações opcionais. Updater automático desabilitado por padrão em V1; downloads só via HTTPS e verificação de assinatura/hash; migração de configuração compatível e recuperação/rollback. Instalação headless documentada para usuários técnicos. Sem App Store.
+**Atualizações:** GitHub Releases com checksum, changelog e notificações opcionais; artefatos macOS sem assinatura/notarização conforme decisão do usuário. Updater automático desabilitado por padrão em V1; downloads só via HTTPS e verificação de checksum/proveniência do artefato; migração de configuração compatível e recuperação/rollback. Instalação headless documentada para usuários técnicos. Sem App Store.
 
 ## 17. Backlog estruturado para issues
 
@@ -1430,7 +1744,7 @@ caminho medido, mas não altera a ressalva acima sobre o p95 end-to-end da UI.
 
 **Épico E10 — UX:** navegação por jornada, refinamento da tela validada no M0, gráficos responsivos com eixo temporal, tabela de processos legível/ordenável, estados de startup/erro/permissão, tokens, dark/light, teclado, a11y, pt-BR/en-US, densidade compacta e screenshots de regressão.
 
-**Épico E11 — Release:** build, notarize/sign, packaging, update/uninstall, SBOM, docs, validated hardware matrix and performance report.
+**Épico E11 — Release:** build, packaging, update/uninstall, SBOM, docs, validated hardware matrix and performance report; keep macOS artifacts unsigned per the current decision.
 
 **Template de issue:** objetivo, plataforma/dispositivo, fonte de métrica, pré-condições/permissões, UI esperada, payload IPC, limites de privacidade, testes automatizados, teste em hardware real, benchmark delta, documentação e critérios observáveis.
 
@@ -1446,7 +1760,7 @@ caminho medido, mas não altera a ressalva acima sobre o p95 end-to-end da UI.
 
 **Gate V0.8 (observabilidade beta):** exporter e queue confiáveis, ações seguras, serviço/instalador, i18n, alertas, suporte macOS arm64/Linux x64+arm64/Windows11 x64 com limitações honestas.
 
-**Gate V1.0 (release):** todos os fluxos centrais com testes repetíveis, artefatos assinados onde aplicável, hardware matrix, benchmark real contra referências, security review, filas e export com perda explícita, documentação para instalação/recuperação/desinstalação. Falta de hardware para família implica badge *experimental* ou adiamento de claim; **nunca** “suporte completo” por compilação apenas.
+**Gate V1.0 (release):** todos os fluxos centrais com testes repetíveis, checksums/proveniência e assinaturas somente nos formatos que o projeto tenha aprovado, artefatos macOS sem assinatura conforme a decisão atual, hardware matrix, benchmark real contra referências, security review, filas e export com perda explícita, documentação para instalação/recuperação/desinstalação. Falta de hardware para família implica badge *experimental* ou adiamento de claim; **nunca** “suporte completo” por compilação apenas.
 
 ## 19. Riscos e respostas
 

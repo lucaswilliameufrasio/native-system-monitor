@@ -80,6 +80,7 @@ mod tests {
             process_sort_key: "name".to_owned(),
             process_pid: 0,
             process_start_time_unix_seconds: 0,
+            process_action: 0,
         };
         let (mut sender, mut receiver) = tokio::io::duplex(512);
 
@@ -89,6 +90,44 @@ mod tests {
         let decoded: Request = read_message(&mut receiver).await.expect("read request");
 
         assert_eq!(decoded, request);
+    }
+
+    #[tokio::test]
+    async fn process_control_request_and_result_round_trip_as_typed_fields() {
+        use crate::wire::{Operation, ProcessAction, ProcessActionResult};
+
+        let request = Request {
+            protocol_major: PROTOCOL_MAJOR,
+            protocol_minor: PROTOCOL_MINOR,
+            operation: Operation::ProcessControl as i32,
+            process_pid: 42,
+            process_start_time_unix_seconds: 1_700_000_000,
+            process_action: ProcessAction::Force as i32,
+            ..Request::default()
+        };
+        let (mut sender, mut receiver) = tokio::io::duplex(512);
+        write_message(&mut sender, &request)
+            .await
+            .expect("write process control request");
+        let decoded_request: Request = read_message(&mut receiver)
+            .await
+            .expect("read process control request");
+        assert_eq!(decoded_request, request);
+
+        let response = Response {
+            protocol_major: PROTOCOL_MAJOR,
+            protocol_minor: PROTOCOL_MINOR,
+            process_action_result: ProcessActionResult::PermissionDenied as i32,
+            ..Response::default()
+        };
+        let (mut sender, mut receiver) = tokio::io::duplex(512);
+        write_message(&mut sender, &response)
+            .await
+            .expect("write process control result");
+        let decoded_response: Response = read_message(&mut receiver)
+            .await
+            .expect("read process control result");
+        assert_eq!(decoded_response, response);
     }
 
     #[tokio::test]

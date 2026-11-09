@@ -1,13 +1,16 @@
 use anyhow::{Context, Result, anyhow, bail};
 use native_monitor_agent_lifecycle::{self as agent_lifecycle, StartupMode};
-use native_monitor_domain::NetworkInterfaceKind;
+use native_monitor_domain::{NetworkInterfaceKind, ProcessIdentity};
 use native_monitor_ipc::client;
 use native_monitor_ipc::wire::{
-    NetworkInterfaceKind as WireNetworkInterfaceKind, Operation, ProcessMetrics,
+    NetworkInterfaceKind as WireNetworkInterfaceKind, Operation,
+    ProcessAction as WireProcessAction, ProcessActionResult as WireProcessActionResult,
+    ProcessMetrics,
 };
 use slint::{ModelRc, SharedString, VecModel};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -23,7 +26,7 @@ use localization::{
     ChartHistoryRange, ChartMetric, CountKind, EmptyDeviceCollection, ProcessAgeUnit,
     ProcessTreeStatus, SampleAgeLabel, TelemetryStatusTexts, UiCatalogs, UnsupportedCapability,
 };
-use ui_settings::{ByteUnitSystem, UiSettings};
+use ui_settings::{ByteUnitSystem, DensityPreference, UiSettings};
 
 const MAX_PROCESS_ROWS: usize = 1_000;
 const MAX_PROCESS_FILTER_CHARS: usize = 256;
@@ -36,6 +39,7 @@ const NETWORK_INTERFACE_KIND_PROTOCOL_MINOR: u32 = 10;
 const BLOCK_DEVICE_IO_PROTOCOL_MINOR: u32 = 4;
 const GPU_METRICS_PROTOCOL_MINOR: u32 = 7;
 const BATTERY_METRICS_PROTOCOL_MINOR: u32 = 8;
+const PROCESS_CONTROL_PROTOCOL_MINOR: u32 = 11;
 const ONE_MINUTE_MS: u64 = 60_000;
 const FIVE_MINUTES_MS: u64 = 300_000;
 
@@ -213,6 +217,36 @@ struct UiPreferences {
     selected_process_key: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ProcessActionTarget {
+    identity: ProcessIdentity,
+    name: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ProcessActionWorkflowState {
+    Idle,
+    ConfirmGentle(ProcessActionTarget),
+    SendingGentle(ProcessActionTarget),
+    WaitingGentle {
+        target: ProcessActionTarget,
+        requested_at: Instant,
+        result: WireProcessActionResult,
+    },
+    ConfirmForce(ProcessActionTarget),
+    SendingForce(ProcessActionTarget),
+    Finished {
+        target: ProcessActionTarget,
+        result: WireProcessActionResult,
+    },
+}
+
+#[derive(Clone, Debug)]
+enum ProcessActionCommand {
+    Gentle(ProcessActionTarget),
+    Force(ProcessActionTarget),
+}
+
 #[derive(Debug)]
 struct ChartHistoryUiState {
     cpu_range: ChartHistoryRange,
@@ -334,6 +368,8 @@ fn main() -> Result<()> {
     )));
     let locale_state = Arc::new(AtomicU8::new(initial_locale.code()));
     let process_tree_status_state = Arc::new(AtomicU8::new(ProcessTreeStatus::None.code()));
+    let process_action_state = Arc::new(Mutex::new(ProcessActionWorkflowState::Idle));
+    let (process_action_sender, process_action_receiver) = mpsc::channel();
     let settings_path = ui_settings::default_settings_path();
     let initial_ui_settings = match settings_path.as_deref() {
         Some(path) => match UiSettings::load(path) {
@@ -345,22 +381,42 @@ fn main() -> Result<()> {
         },
         None => UiSettings::default(),
     };
+    apply_ui_settings(&window, &initial_ui_settings);
     let initial_byte_unit_system = initial_ui_settings.byte_unit_system;
-    window.set_byte_unit_system(initial_byte_unit_system.ui_value());
+    let ui_settings_state = Arc::new(Mutex::new(initial_ui_settings));
     let byte_unit_system_state = Arc::new(AtomicU8::new(initial_byte_unit_system.code()));
     let unit_state_for_callback = Arc::clone(&byte_unit_system_state);
+    let settings_for_unit_callback = Arc::clone(&ui_settings_state);
+    let settings_path_for_unit_callback = settings_path.clone();
     window.on_byte_unit_system_selected(move |value| {
         match apply_byte_unit_system_selection(
             value.as_str(),
             &unit_state_for_callback,
-            settings_path.as_deref(),
+            &settings_for_unit_callback,
+            settings_path_for_unit_callback.as_deref(),
         ) {
-            Ok(Some(_)) if settings_path.is_none() => {
+            Ok(Some(_)) if settings_path_for_unit_callback.is_none() => {
                 warn!("no per-user configuration directory; byte unit choice is session-only");
             }
             Ok(Some(_)) => {}
             Ok(None) => warn!(unit_system = %value, "ignored unsupported byte unit system"),
             Err(error) => warn!(%error, "could not persist byte unit preference"),
+        }
+    });
+    let settings_for_density_callback = Arc::clone(&ui_settings_state);
+    let settings_path_for_density_callback = settings_path.clone();
+    window.on_density_selected(move |value| {
+        match apply_density_selection(
+            value.as_str(),
+            &settings_for_density_callback,
+            settings_path_for_density_callback.as_deref(),
+        ) {
+            Ok(Some(_)) if settings_path_for_density_callback.is_none() => {
+                warn!("no per-user configuration directory; density choice is session-only");
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => warn!(density = %value, "ignored unsupported UI density"),
+            Err(error) => warn!(%error, "could not persist UI density preference"),
         }
     });
     let locale_for_callback = Arc::clone(&locale_state);
@@ -370,6 +426,7 @@ fn main() -> Result<()> {
     let chart_ui_state_for_locale_callback = Arc::clone(&chart_history_ui_state);
     let agent_status_state_for_locale_callback = Arc::clone(&agent_status_state);
     let tree_status_for_locale_callback = Arc::clone(&process_tree_status_state);
+    let action_state_for_locale_callback = Arc::clone(&process_action_state);
     let weak_window_for_locale = window.as_weak();
     window.on_language_selected(move |value| {
         let Some(locale) = Locale::from_selection(value.as_str()) else {
@@ -413,6 +470,15 @@ fn main() -> Result<()> {
             apply_storage_texts(&window, &catalogs_for_locale_callback, locale);
             apply_network_texts(&window, &catalogs_for_locale_callback, locale);
             apply_process_texts(&window, &catalogs_for_locale_callback, locale);
+            match action_state_for_locale_callback.lock() {
+                Ok(state) => update_process_action_view(
+                    &window,
+                    &catalogs_for_locale_callback,
+                    locale,
+                    &state,
+                ),
+                Err(error) => warn!(%error, "process action state is unavailable"),
+            }
             let sample_age_state = SampleAgeState::from_code(
                 sample_age_state_for_locale_callback.load(Ordering::Acquire),
             );
@@ -452,9 +518,136 @@ fn main() -> Result<()> {
     });
 
     let selection_preferences = Arc::clone(&preferences);
-    window.on_process_selected(move |key| match selection_preferences.lock() {
-        Ok(mut preferences) => preferences.selected_process_key = Some(key.to_string()),
-        Err(error) => warn!(%error, "selected process state is unavailable"),
+    let action_state_for_selection = Arc::clone(&process_action_state);
+    let catalogs_for_selection = Arc::clone(&ui_catalogs);
+    let locale_for_selection = Arc::clone(&locale_state);
+    let weak_window_for_selection = window.as_weak();
+    window.on_process_selected(move |key| {
+        match selection_preferences.lock() {
+            Ok(mut preferences) => preferences.selected_process_key = Some(key.to_string()),
+            Err(error) => warn!(%error, "selected process state is unavailable"),
+        }
+        match action_state_for_selection.lock() {
+            Ok(mut state) => {
+                *state = ProcessActionWorkflowState::Idle;
+                if let Some(window) = weak_window_for_selection.upgrade() {
+                    update_process_action_view(
+                        &window,
+                        &catalogs_for_selection,
+                        Locale::from_code(locale_for_selection.load(Ordering::Acquire)),
+                        &state,
+                    );
+                }
+            }
+            Err(error) => warn!(%error, "process action state is unavailable"),
+        }
+    });
+
+    let action_state_for_callback = Arc::clone(&process_action_state);
+    let action_sender_for_callback = process_action_sender.clone();
+    let action_preferences_for_callback = Arc::clone(&preferences);
+    let action_catalogs_for_callback = Arc::clone(&ui_catalogs);
+    let action_locale_for_callback = Arc::clone(&locale_state);
+    let weak_window_for_action = window.as_weak();
+    window.on_process_action_command(move |command| {
+        let Some(window) = weak_window_for_action.upgrade() else {
+            return;
+        };
+        if !window.get_process_control_supported() {
+            return;
+        }
+
+        let mut queued_command = None;
+        match action_state_for_callback.lock() {
+            Ok(mut state) => {
+                match command.as_str() {
+                    "request-gentle" if matches!(*state, ProcessActionWorkflowState::Idle) => {
+                        let selected_key = match action_preferences_for_callback.lock() {
+                            Ok(preferences) => preferences.selected_process_key.clone(),
+                            Err(error) => {
+                                warn!(%error, "selected process state is unavailable");
+                                None
+                            }
+                        };
+                        if let Some(identity) =
+                            selected_key.as_deref().and_then(parse_process_identity_key)
+                        {
+                            let target = ProcessActionTarget {
+                                identity,
+                                name: window.get_selected_process_name().to_string(),
+                            };
+                            *state = ProcessActionWorkflowState::ConfirmGentle(target);
+                        }
+                    }
+                    "confirm-gentle" => {
+                        if let ProcessActionWorkflowState::ConfirmGentle(target) = &*state {
+                            let target = target.clone();
+                            *state = ProcessActionWorkflowState::SendingGentle(target.clone());
+                            queued_command = Some(ProcessActionCommand::Gentle(target));
+                        }
+                    }
+                    "confirm-force" => {
+                        if let ProcessActionWorkflowState::ConfirmForce(target) = &*state {
+                            let target = target.clone();
+                            *state = ProcessActionWorkflowState::SendingForce(target.clone());
+                            queued_command = Some(ProcessActionCommand::Force(target));
+                        }
+                    }
+                    "cancel" => {
+                        if matches!(
+                            *state,
+                            ProcessActionWorkflowState::ConfirmGentle(_)
+                                | ProcessActionWorkflowState::WaitingGentle { .. }
+                                | ProcessActionWorkflowState::ConfirmForce(_)
+                        ) {
+                            *state = ProcessActionWorkflowState::Idle;
+                        }
+                    }
+                    "dismiss" => {
+                        if matches!(*state, ProcessActionWorkflowState::Finished { .. }) {
+                            *state = ProcessActionWorkflowState::Idle;
+                        }
+                    }
+                    _ => warn!(command = %command, "ignored invalid process action transition"),
+                }
+                update_process_action_view(
+                    &window,
+                    &action_catalogs_for_callback,
+                    Locale::from_code(action_locale_for_callback.load(Ordering::Acquire)),
+                    &state,
+                );
+            }
+            Err(error) => warn!(%error, "process action state is unavailable"),
+        }
+
+        if let Some(queued_command) = queued_command
+            && let Err(send_error) = action_sender_for_callback.send(queued_command)
+        {
+            warn!("desktop IPC worker is not available for process control");
+            let failed_command = send_error.0;
+            let failed_state = match &failed_command {
+                ProcessActionCommand::Gentle(target) | ProcessActionCommand::Force(target) => {
+                    ProcessActionWorkflowState::Finished {
+                        target: target.clone(),
+                        result: WireProcessActionResult::Failed,
+                    }
+                }
+            };
+            match action_state_for_callback.lock() {
+                Ok(mut state) => {
+                    if process_action_command_matches_state(&failed_command, &state) {
+                        *state = failed_state;
+                        update_process_action_view(
+                            &window,
+                            &action_catalogs_for_callback,
+                            Locale::from_code(action_locale_for_callback.load(Ordering::Acquire)),
+                            &state,
+                        );
+                    }
+                }
+                Err(error) => warn!(%error, "process action state is unavailable"),
+            }
+        }
     });
 
     let sort_preferences = Arc::clone(&preferences);
@@ -530,7 +723,12 @@ fn main() -> Result<()> {
     let worker_tree_status = Arc::clone(&process_tree_status_state);
     let worker_byte_unit_system = Arc::clone(&byte_unit_system_state);
     let worker_history_window = Arc::clone(&history_window_ms);
+    let worker_process_action_state = Arc::clone(&process_action_state);
+    let worker_process_action_receiver = process_action_receiver;
+    let worker_process_action_catalogs = Arc::clone(&ui_catalogs);
+    let worker_process_action_locale = Arc::clone(&locale_state);
     let weak_window = window.as_weak();
+    let weak_window_for_process_action = weak_window.clone();
     let worker = thread::Builder::new()
         .name("native-monitor-ui-ipc".to_owned())
         .spawn(move || {
@@ -559,6 +757,42 @@ fn main() -> Result<()> {
             let mut last_tree_refresh = None::<Instant>;
 
             while !worker_stop.load(Ordering::Acquire) {
+                while let Ok(command) = worker_process_action_receiver.try_recv() {
+                    let current_state = match worker_process_action_state.lock() {
+                        Ok(state) => state.clone(),
+                        Err(error) => {
+                            warn!(%error, "process action state is unavailable");
+                            continue;
+                        }
+                    };
+                    if !process_action_command_matches_state(&command, &current_state) {
+                        continue;
+                    }
+                    let next_state = execute_process_action_command(&runtime, command.clone());
+                    let state_to_publish = match worker_process_action_state.lock() {
+                        Ok(mut state) => {
+                            if process_action_command_matches_state(&command, &state) {
+                                *state = next_state;
+                                Some(state.clone())
+                            } else {
+                                None
+                            }
+                        }
+                        Err(error) => {
+                            warn!(%error, "process action state is unavailable");
+                            None
+                        }
+                    };
+                    if let Some(state) = state_to_publish {
+                        publish_process_action_view(
+                            weak_window_for_process_action.clone(),
+                            Arc::clone(&worker_process_action_catalogs),
+                            Arc::clone(&worker_process_action_locale),
+                            state,
+                        );
+                    }
+                }
+
                 let locale = Locale::from_code(worker_locale.load(Ordering::Acquire));
                 let byte_unit_system =
                     ByteUnitSystem::from_code(worker_byte_unit_system.load(Ordering::Acquire));
@@ -614,6 +848,38 @@ fn main() -> Result<()> {
                         let status = response.status;
                         let supports_server_process_query =
                             response.protocol_minor >= PROCESS_QUERY_PROTOCOL_MINOR;
+                        let supports_process_control =
+                            response.protocol_minor >= PROCESS_CONTROL_PROTOCOL_MINOR;
+                        if !supports_process_control {
+                            set_process_action_state(
+                                &worker_process_action_state,
+                                None,
+                                ProcessActionWorkflowState::Idle,
+                                weak_window_for_process_action.clone(),
+                                Arc::clone(&worker_process_action_catalogs),
+                                Arc::clone(&worker_process_action_locale),
+                            );
+                        } else {
+                            let current_action_state = match worker_process_action_state.lock() {
+                                Ok(state) => state.clone(),
+                                Err(error) => {
+                                    warn!(%error, "process action state is unavailable");
+                                    ProcessActionWorkflowState::Idle
+                                }
+                            };
+                            if let Some((expected_state, next_state)) =
+                                advance_process_action_state(&runtime, &current_action_state)
+                            {
+                                set_process_action_state(
+                                    &worker_process_action_state,
+                                    Some(&expected_state),
+                                    next_state,
+                                    weak_window_for_process_action.clone(),
+                                    Arc::clone(&worker_process_action_catalogs),
+                                    Arc::clone(&worker_process_action_locale),
+                                );
+                            }
+                        }
                         if let Some(snapshot) = response.snapshot {
                             let total_memory_bytes = snapshot
                                 .memory
@@ -1153,7 +1419,6 @@ fn main() -> Result<()> {
                                 Arc::clone(&worker_agent_status_state);
                             let catalogs_for_agent_status = Arc::clone(&worker_catalogs);
                             let locale_for_agent_status = Arc::clone(&worker_locale);
-
                             if let Err(error) = slint::invoke_from_event_loop(move || {
                                 let Some(window) = weak_for_update.upgrade() else {
                                     return;
@@ -1162,6 +1427,7 @@ fn main() -> Result<()> {
                                 let locale = Locale::from_code(
                                     locale_for_agent_status.load(Ordering::Acquire),
                                 );
+                                window.set_process_control_supported(supports_process_control);
                                 match agent_status_state_for_update.lock() {
                                     Ok(state) => {
                                         if let Some(state) = state.as_ref() {
@@ -1255,6 +1521,14 @@ fn main() -> Result<()> {
                         }
                     }
                     Err(error) => {
+                        set_process_action_state(
+                            &worker_process_action_state,
+                            None,
+                            ProcessActionWorkflowState::Idle,
+                            weak_window_for_process_action.clone(),
+                            Arc::clone(&worker_process_action_catalogs),
+                            Arc::clone(&worker_process_action_locale),
+                        );
                         let sample_age_state = SampleAgeState::NoRecentSample;
                         worker_sample_age_state.store(sample_age_state.code(), Ordering::Release);
                         let ipc_error = format!("{error:#}");
@@ -1286,6 +1560,7 @@ fn main() -> Result<()> {
                             if let Some(window) = weak_for_status.upgrade() {
                                 let locale =
                                     Locale::from_code(locale_for_status.load(Ordering::Acquire));
+                                window.set_process_control_supported(false);
                                 match agent_status_state_for_status.lock() {
                                     Ok(state) => {
                                         if let Some(state) = state.as_ref() {
@@ -1384,6 +1659,7 @@ fn process_identity_key(process: &ProcessMetrics) -> String {
 fn apply_byte_unit_system_selection(
     selection: &str,
     state: &AtomicU8,
+    settings_state: &Mutex<UiSettings>,
     settings_path: Option<&Path>,
 ) -> Result<Option<ByteUnitSystem>> {
     let Some(byte_unit_system) = ByteUnitSystem::from_selection(selection) else {
@@ -1391,11 +1667,40 @@ fn apply_byte_unit_system_selection(
     };
     state.store(byte_unit_system.code(), Ordering::Release);
 
+    let mut settings = settings_state
+        .lock()
+        .map_err(|_| anyhow!("desktop preferences lock is poisoned"))?;
+    settings.byte_unit_system = byte_unit_system;
     if let Some(path) = settings_path {
-        UiSettings { byte_unit_system }.save(path)?;
+        settings.save(path)?;
     }
 
     Ok(Some(byte_unit_system))
+}
+
+fn apply_ui_settings(window: &MainWindow, settings: &UiSettings) {
+    window.set_byte_unit_system(settings.byte_unit_system.ui_value());
+    window.set_density(settings.density.ui_value());
+}
+
+fn apply_density_selection(
+    selection: &str,
+    settings_state: &Mutex<UiSettings>,
+    settings_path: Option<&Path>,
+) -> Result<Option<DensityPreference>> {
+    let Some(density) = DensityPreference::from_selection(selection) else {
+        return Ok(None);
+    };
+
+    let mut settings = settings_state
+        .lock()
+        .map_err(|_| anyhow!("desktop preferences lock is poisoned"))?;
+    settings.density = density;
+    if let Some(path) = settings_path {
+        settings.save(path)?;
+    }
+
+    Ok(Some(density))
 }
 
 fn find_selected_process<'a>(
@@ -2125,6 +2430,14 @@ fn apply_process_texts(window: &MainWindow, catalogs: &UiCatalogs, locale: Local
     ));
     window.set_process_select_prompt_label(SharedString::from(process_texts.select_prompt));
     window.set_process_tree_title_label(SharedString::from(process_texts.tree_title));
+    window.set_process_action_request_label(SharedString::from(process_texts.action_request));
+    window.set_process_action_confirm_label(SharedString::from(process_texts.action_confirm));
+    window.set_process_action_force_label(SharedString::from(process_texts.action_force));
+    window.set_process_action_cancel_label(SharedString::from(process_texts.action_cancel));
+    window.set_process_action_stop_escalation_label(SharedString::from(
+        process_texts.action_stop_escalation,
+    ));
+    window.set_process_action_dismiss_label(SharedString::from(process_texts.action_dismiss));
 }
 
 fn apply_agent_connection_status_texts(
@@ -2157,36 +2470,299 @@ fn process_tree_status_text(
         .to_owned()
 }
 
+fn parse_process_identity_key(key: &str) -> Option<ProcessIdentity> {
+    let (pid, start_time_unix_seconds) = key.split_once(':')?;
+    if pid.contains(':') || start_time_unix_seconds.contains(':') {
+        return None;
+    }
+    let identity = ProcessIdentity {
+        pid: pid.parse().ok()?,
+        start_time_unix_seconds: start_time_unix_seconds.parse().ok()?,
+    };
+    if identity.pid == 0 || identity.start_time_unix_seconds == 0 {
+        return None;
+    }
+    Some(identity)
+}
+
+fn process_action_command_matches_state(
+    command: &ProcessActionCommand,
+    state: &ProcessActionWorkflowState,
+) -> bool {
+    match (command, state) {
+        (
+            ProcessActionCommand::Gentle(target),
+            ProcessActionWorkflowState::SendingGentle(current),
+        )
+        | (
+            ProcessActionCommand::Force(target),
+            ProcessActionWorkflowState::SendingForce(current),
+        ) => target == current,
+        _ => false,
+    }
+}
+
+fn process_action_force_confirmation_due(state: &ProcessActionWorkflowState, now: Instant) -> bool {
+    match state {
+        ProcessActionWorkflowState::WaitingGentle { requested_at, .. } => {
+            now.saturating_duration_since(*requested_at) >= Duration::from_secs(5)
+        }
+        _ => false,
+    }
+}
+
+fn set_process_action_state(
+    shared_state: &Arc<Mutex<ProcessActionWorkflowState>>,
+    expected_state: Option<&ProcessActionWorkflowState>,
+    next_state: ProcessActionWorkflowState,
+    weak_window: slint::Weak<MainWindow>,
+    catalogs: Arc<UiCatalogs>,
+    locale_state: Arc<AtomicU8>,
+) {
+    let state_to_publish = match shared_state.lock() {
+        Ok(mut state) => {
+            let can_update = expected_state.is_none_or(|expected| *state == *expected);
+            if can_update && *state != next_state {
+                *state = next_state;
+                Some(state.clone())
+            } else {
+                None
+            }
+        }
+        Err(error) => {
+            warn!(%error, "process action state is unavailable");
+            None
+        }
+    };
+    if let Some(state) = state_to_publish {
+        publish_process_action_view(weak_window, catalogs, locale_state, state);
+    }
+}
+
+fn advance_process_action_state(
+    runtime: &tokio::runtime::Runtime,
+    current_state: &ProcessActionWorkflowState,
+) -> Option<(ProcessActionWorkflowState, ProcessActionWorkflowState)> {
+    let ProcessActionWorkflowState::WaitingGentle { target, .. } = current_state else {
+        return None;
+    };
+    if !process_action_force_confirmation_due(current_state, Instant::now()) {
+        return None;
+    }
+
+    let target = target.clone();
+    let result = match runtime.block_on(client::request_process_tree(
+        target.identity.pid,
+        target.identity.start_time_unix_seconds,
+    )) {
+        Ok(response) => {
+            let process_is_running = response.snapshot.is_some_and(|snapshot| {
+                snapshot.processes.iter().any(|process| {
+                    process.pid == target.identity.pid
+                        && process.start_time_unix_seconds
+                            == target.identity.start_time_unix_seconds
+                })
+            });
+            if process_is_running {
+                ProcessActionWorkflowState::ConfirmForce(target)
+            } else {
+                ProcessActionWorkflowState::Finished {
+                    target,
+                    result: WireProcessActionResult::ProcessNotFound,
+                }
+            }
+        }
+        Err(error) if format!("{error:#}").contains("process_not_found") => {
+            ProcessActionWorkflowState::Finished {
+                target,
+                result: WireProcessActionResult::ProcessNotFound,
+            }
+        }
+        Err(error) => {
+            warn!(%error, "could not revalidate process before force confirmation");
+            ProcessActionWorkflowState::Finished {
+                target,
+                result: WireProcessActionResult::Failed,
+            }
+        }
+    };
+    Some((current_state.clone(), result))
+}
+
+fn update_process_action_view(
+    window: &MainWindow,
+    catalogs: &UiCatalogs,
+    locale: Locale,
+    state: &ProcessActionWorkflowState,
+) {
+    let texts = catalogs.process_texts(locale);
+    let (ui_state, status, target) = match state {
+        ProcessActionWorkflowState::Idle => (ProcessActionUiState::Idle, "", None),
+        ProcessActionWorkflowState::ConfirmGentle(_) => (
+            ProcessActionUiState::ConfirmGentle,
+            texts.action_confirm_gentle,
+            workflow_target(state),
+        ),
+        ProcessActionWorkflowState::SendingGentle(_) => (
+            ProcessActionUiState::SendingGentle,
+            texts.action_sending_gentle,
+            workflow_target(state),
+        ),
+        ProcessActionWorkflowState::WaitingGentle { result, .. } => (
+            ProcessActionUiState::WaitingGentle,
+            if *result == WireProcessActionResult::NoWindowFound {
+                texts.action_result_no_window
+            } else {
+                texts.action_waiting_gentle
+            },
+            workflow_target(state),
+        ),
+        ProcessActionWorkflowState::ConfirmForce(_) => (
+            ProcessActionUiState::ConfirmForce,
+            texts.action_confirm_force,
+            workflow_target(state),
+        ),
+        ProcessActionWorkflowState::SendingForce(_) => (
+            ProcessActionUiState::SendingForce,
+            texts.action_sending_force,
+            workflow_target(state),
+        ),
+        ProcessActionWorkflowState::Finished { result, .. } => (
+            ProcessActionUiState::Finished,
+            process_action_result_text(*result, &texts),
+            workflow_target(state),
+        ),
+    };
+    let status = match target {
+        Some(target) => format!(
+            "{status} · {} · {} {}",
+            target.name,
+            texts.pid_label,
+            locale.format_integer(u128::from(target.identity.pid)),
+        ),
+        None => status.to_owned(),
+    };
+    window.set_process_action_state(ui_state);
+    window.set_process_action_status(SharedString::from(status));
+}
+
+fn workflow_target(state: &ProcessActionWorkflowState) -> Option<&ProcessActionTarget> {
+    match state {
+        ProcessActionWorkflowState::Idle => None,
+        ProcessActionWorkflowState::ConfirmGentle(target)
+        | ProcessActionWorkflowState::SendingGentle(target)
+        | ProcessActionWorkflowState::ConfirmForce(target)
+        | ProcessActionWorkflowState::SendingForce(target)
+        | ProcessActionWorkflowState::Finished { target, .. }
+        | ProcessActionWorkflowState::WaitingGentle { target, .. } => Some(target),
+    }
+}
+
+fn process_action_result_text<'a>(
+    result: WireProcessActionResult,
+    texts: &localization::ProcessTexts<'a>,
+) -> &'a str {
+    match result {
+        WireProcessActionResult::Submitted => texts.action_result_submitted,
+        WireProcessActionResult::NoWindowFound => texts.action_result_no_window,
+        WireProcessActionResult::ProcessNotFound => texts.action_result_not_found,
+        WireProcessActionResult::IdentityMismatch => texts.action_result_identity_mismatch,
+        WireProcessActionResult::PermissionDenied => texts.action_result_permission_denied,
+        WireProcessActionResult::Unsupported => texts.action_result_unsupported,
+        WireProcessActionResult::Failed | WireProcessActionResult::Unspecified => {
+            texts.action_result_failed
+        }
+    }
+}
+
+fn publish_process_action_view(
+    weak_window: slint::Weak<MainWindow>,
+    catalogs: Arc<UiCatalogs>,
+    locale_state: Arc<AtomicU8>,
+    state: ProcessActionWorkflowState,
+) {
+    if let Err(error) = slint::invoke_from_event_loop(move || {
+        if let Some(window) = weak_window.upgrade() {
+            update_process_action_view(
+                &window,
+                &catalogs,
+                Locale::from_code(locale_state.load(Ordering::Acquire)),
+                &state,
+            );
+        }
+    }) {
+        debug!(%error, "could not update process action status");
+    }
+}
+
+fn execute_process_action_command(
+    runtime: &tokio::runtime::Runtime,
+    command: ProcessActionCommand,
+) -> ProcessActionWorkflowState {
+    let (target, action, gentle) = match command {
+        ProcessActionCommand::Gentle(target) => (target, WireProcessAction::Gentle, true),
+        ProcessActionCommand::Force(target) => (target, WireProcessAction::Force, false),
+    };
+    let result = runtime.block_on(client::request_process_action(
+        target.identity.pid,
+        target.identity.start_time_unix_seconds,
+        action,
+    ));
+    let result = match result {
+        Ok(result) => result,
+        Err(error) => {
+            warn!(%error, process_pid = target.identity.pid, "process control IPC request failed");
+            WireProcessActionResult::Failed
+        }
+    };
+    if gentle
+        && matches!(
+            result,
+            WireProcessActionResult::Submitted | WireProcessActionResult::NoWindowFound
+        )
+    {
+        ProcessActionWorkflowState::WaitingGentle {
+            target,
+            requested_at: Instant::now(),
+            result,
+        }
+    } else {
+        ProcessActionWorkflowState::Finished { target, result }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         AgentStatusState, ByteUnitSystem, ChartHistoryRange, ChartHistoryUiState, ChartMetric,
-        CountKind, CpuCoreRow, EmptyDeviceCollection, FIVE_MINUTES_MS, GpuRow, Locale,
-        MAX_CHART_POINTS, MainPage, MainWindow, NetworkInterfaceRow, ONE_MINUTE_MS, ProcessRow,
+        CountKind, CpuCoreRow, DensityPreference, EmptyDeviceCollection, FIVE_MINUTES_MS, GpuRow,
+        Locale, MAX_CHART_POINTS, MainPage, MainWindow, NetworkInterfaceRow, ONE_MINUTE_MS,
+        ProcessActionTarget, ProcessActionUiState, ProcessActionWorkflowState, ProcessRow,
         ProcessSort, ProcessTreeStatus, SampleAgeState, SortKey, UiByteUnitSystem, UiCatalogs,
         UiDensity, UiLanguage, UiSettings, UnsupportedCapability,
         apply_agent_connection_status_texts, apply_agent_status_state,
         apply_byte_unit_system_selection, apply_chart_texts, apply_chart_ui_state,
-        apply_density_texts, apply_header_texts, apply_initial_metric_statuses,
-        apply_navigation_texts, apply_network_texts, apply_overview_texts, apply_performance_texts,
-        apply_process_texts, apply_storage_texts, chart_accessible_summary, compare_optional_cpu,
-        downsample_max, find_selected_process, format_bytes, format_bytes_per_second,
-        format_gpu_clocks, format_latency_ms, format_operations_per_second, format_process_memory,
-        gpu_status_label, memory_percentage, memory_status_description, memory_summary,
-        metric_status_label, network_interface_kind_from_wire, network_interface_kind_label,
-        process_identity_key, process_row, process_start_age_label, process_tree_rows,
-        process_tree_status_text, sample_age_status_text, select_history, sort_processes,
-        swap_summary, unix_time_ms,
+        apply_density_selection, apply_density_texts, apply_header_texts,
+        apply_initial_metric_statuses, apply_navigation_texts, apply_network_texts,
+        apply_overview_texts, apply_performance_texts, apply_process_texts, apply_storage_texts,
+        apply_ui_settings, chart_accessible_summary, compare_optional_cpu, downsample_max,
+        find_selected_process, format_bytes, format_bytes_per_second, format_gpu_clocks,
+        format_latency_ms, format_operations_per_second, format_process_memory, gpu_status_label,
+        memory_percentage, memory_status_description, memory_summary, metric_status_label,
+        network_interface_kind_from_wire, network_interface_kind_label, parse_process_identity_key,
+        process_action_force_confirmation_due, process_identity_key, process_row,
+        process_start_age_label, process_tree_rows, process_tree_status_text,
+        sample_age_status_text, select_history, sort_processes, swap_summary, unix_time_ms,
     };
-    use native_monitor_domain::NetworkInterfaceKind;
+    use native_monitor_domain::{NetworkInterfaceKind, ProcessIdentity};
     use native_monitor_ipc::wire::{
-        NetworkInterfaceKind as WireNetworkInterfaceKind, ProcessMetrics,
+        NetworkInterfaceKind as WireNetworkInterfaceKind, ProcessActionResult, ProcessMetrics,
     };
     use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     static UI_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -2217,6 +2793,169 @@ mod tests {
         assert_eq!(history[1], 1_000.0);
         assert_eq!(history[29], 2_000.0);
         assert_eq!(history[70], 3_000.0);
+    }
+
+    #[test]
+    #[ignore = "manual release UI performance benchmark; renders with Slint software backend"]
+    fn ui_performance_budget_10k_processes_and_1200_chart_points() {
+        let _guard = UI_TEST_LOCK.lock().expect("lock UI performance benchmark");
+        slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+            i_slint_backend_testing::TestingBackendOptions {
+                renderer_name: Some(SharedString::from("software")),
+                ..Default::default()
+            },
+        )))
+        .expect("initialize the Slint software rendering backend");
+
+        let window = MainWindow::new().expect("create the benchmark window");
+        let catalogs = UiCatalogs::load().expect("load UI catalogs");
+        let locale = Locale::EnUs;
+        window
+            .window()
+            .set_size(slint::PhysicalSize::new(1_120, 720));
+        window.show().expect("show the benchmark window");
+        window.set_language(UiLanguage::EnUs);
+        window.set_byte_unit_system(UiByteUnitSystem::Iec);
+        window.set_agent_connected(true);
+        window.set_density(UiDensity::Comfortable);
+        window.set_sort_key(SharedString::from("name"));
+        window.set_sort_descending(false);
+        apply_header_texts(&window, &catalogs, locale);
+        apply_navigation_texts(&window, &catalogs, locale);
+        apply_overview_texts(&window, &catalogs, locale);
+        apply_process_texts(&window, &catalogs, locale);
+        apply_performance_texts(&window, &catalogs, locale);
+        apply_chart_texts(&window, &catalogs, locale);
+        window.set_cpu_value(SharedString::from("42.0%"));
+        window.set_memory_value(SharedString::from("8.0 GiB"));
+
+        let mut processes = Vec::with_capacity(10_000);
+        for index in (0..10_000_u32).rev() {
+            processes.push(ProcessMetrics {
+                pid: index + 1,
+                parent_pid: Some(1),
+                name: format!("synthetic-worker-{index:05}"),
+                cpu_usage_percent: Some((index % 1_000) as f32 / 10.0),
+                memory_bytes: u64::from(index + 1) * 1_048_576,
+                start_time_unix_seconds: 1_700_000_000 + u64::from(index),
+            });
+        }
+
+        let now_unix_ms = 1_800_000_000_000;
+        let sort = ProcessSort {
+            key: SortKey::Name,
+            descending: false,
+        };
+        window.set_active_page(MainPage::Processes);
+        let initial_process_snapshot = window
+            .window()
+            .take_snapshot()
+            .expect("render the process page before measuring updates");
+        std::hint::black_box(initial_process_snapshot);
+        let (all_rows_p95, _) = measure_ui_latency("sort-render-10000-processes", || {
+            let (elapsed, row_count) = benchmark_process_table_update(
+                &window,
+                &processes,
+                "",
+                sort,
+                now_unix_ms,
+                &catalogs,
+            );
+            assert_eq!(row_count, 10_000);
+            elapsed
+        });
+        assert!(
+            all_rows_p95 <= Duration::from_millis(150),
+            "sorting and rendering 10,000 process rows exceeded the 150 ms p95 target"
+        );
+
+        let (filter_p95, _) = measure_ui_latency("filter-render-10000-processes", || {
+            let (elapsed, row_count) = benchmark_process_table_update(
+                &window,
+                &processes,
+                "synthetic-worker-09999",
+                sort,
+                now_unix_ms,
+                &catalogs,
+            );
+            assert_eq!(row_count, 1);
+            elapsed
+        });
+        assert!(
+            filter_p95 <= Duration::from_millis(150),
+            "filtering and rendering 10,000 process rows exceeded the 150 ms p95 target"
+        );
+
+        let mut chart_samples = Vec::with_capacity(1_200);
+        for index in 0..1_200 {
+            chart_samples.push((index % 97) as f32);
+        }
+        chart_samples[18] = 100.0;
+        chart_samples[500] = 100.0;
+        chart_samples[1_199] = 100.0;
+
+        let (raw_chart_p95, raw_chart_max) =
+            measure_ui_latency("select-render-1200-raw-chart-points", || {
+                window.set_active_page(MainPage::Overview);
+                let _ = window
+                    .window()
+                    .take_snapshot()
+                    .expect("render the overview before chart selection");
+                let points = chart_samples.clone();
+                let started = Instant::now();
+                window.set_active_page(MainPage::Performance);
+                let accessible_summary =
+                    chart_accessible_summary(ChartMetric::Cpu, &points, &catalogs, locale);
+                window.set_cpu_history(ModelRc::new(VecModel::from(points)));
+                window.set_memory_history(ModelRc::new(VecModel::from(Vec::<f32>::new())));
+                window.set_cpu_history_accessible_summary(SharedString::from(accessible_summary));
+                let snapshot = window
+                    .window()
+                    .take_snapshot()
+                    .expect("render the 1,200-point chart");
+                std::hint::black_box(snapshot);
+                started.elapsed()
+            });
+        assert!(
+            raw_chart_p95 <= Duration::from_millis(100),
+            "rendering 1,200 raw chart points exceeded the 100 ms p95 target"
+        );
+        assert!(
+            raw_chart_max <= Duration::from_millis(250),
+            "rendering 1,200 raw chart points exceeded the 250 ms freeze guardrail"
+        );
+
+        let (bounded_chart_p95, bounded_chart_max) =
+            measure_ui_latency("select-render-downsampled-chart", || {
+                window.set_active_page(MainPage::Overview);
+                let _ = window
+                    .window()
+                    .take_snapshot()
+                    .expect("render the overview before chart selection");
+                let started = Instant::now();
+                window.set_active_page(MainPage::Performance);
+                let (points, _) =
+                    select_history(&chart_samples, 250, FIVE_MINUTES_MS, MAX_CHART_POINTS);
+                let accessible_summary =
+                    chart_accessible_summary(ChartMetric::Cpu, &points, &catalogs, locale);
+                window.set_cpu_history(ModelRc::new(VecModel::from(points)));
+                window.set_memory_history(ModelRc::new(VecModel::from(Vec::<f32>::new())));
+                window.set_cpu_history_accessible_summary(SharedString::from(accessible_summary));
+                let snapshot = window
+                    .window()
+                    .take_snapshot()
+                    .expect("render the downsampled chart");
+                std::hint::black_box(snapshot);
+                started.elapsed()
+            });
+        assert!(
+            bounded_chart_p95 <= Duration::from_millis(100),
+            "rendering the production-bounded chart exceeded the 100 ms p95 target"
+        );
+        assert!(
+            bounded_chart_max <= Duration::from_millis(250),
+            "rendering the production-bounded chart exceeded the 250 ms freeze guardrail"
+        );
     }
 
     #[test]
@@ -2612,6 +3351,53 @@ mod tests {
     }
 
     #[test]
+    fn process_control_identity_parser_requires_exact_positive_identity_fields() {
+        assert_eq!(
+            parse_process_identity_key("42:1700000000"),
+            Some(ProcessIdentity {
+                pid: 42,
+                start_time_unix_seconds: 1_700_000_000,
+            })
+        );
+        for invalid_key in ["", "42", "42:0", "0:1700000000", "42:1:2", "x:1"] {
+            assert_eq!(
+                parse_process_identity_key(invalid_key),
+                None,
+                "unexpected identity parse for {invalid_key:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn process_control_force_confirmation_is_not_due_before_five_seconds() {
+        let requested_at = Instant::now();
+        let state = ProcessActionWorkflowState::WaitingGentle {
+            target: ProcessActionTarget {
+                identity: ProcessIdentity {
+                    pid: 42,
+                    start_time_unix_seconds: 1_700_000_000,
+                },
+                name: "fixture-worker".to_owned(),
+            },
+            requested_at,
+            result: ProcessActionResult::Submitted,
+        };
+
+        assert!(!process_action_force_confirmation_due(
+            &state,
+            requested_at + Duration::from_millis(4_999)
+        ));
+        assert!(process_action_force_confirmation_due(
+            &state,
+            requested_at + Duration::from_secs(5)
+        ));
+        assert!(!process_action_force_confirmation_due(
+            &ProcessActionWorkflowState::Idle,
+            requested_at + Duration::from_secs(30)
+        ));
+    }
+
+    #[test]
     fn selecting_byte_units_updates_the_worker_state_and_persists_the_choice() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -2623,9 +3409,13 @@ mod tests {
         ));
         let settings_path = test_directory.join("ui-settings.toml");
         let state = AtomicU8::new(ByteUnitSystem::Iec.code());
+        let settings_state = Mutex::new(UiSettings {
+            byte_unit_system: ByteUnitSystem::Iec,
+            density: DensityPreference::Compact,
+        });
 
         assert_eq!(
-            apply_byte_unit_system_selection("si", &state, Some(&settings_path))
+            apply_byte_unit_system_selection("si", &state, &settings_state, Some(&settings_path))
                 .expect("persist SI unit choice"),
             Some(ByteUnitSystem::Si)
         );
@@ -2640,8 +3430,19 @@ mod tests {
             ByteUnitSystem::Si
         );
         assert_eq!(
-            apply_byte_unit_system_selection("unknown", &state, Some(&settings_path))
-                .expect("ignore unknown unit choice"),
+            UiSettings::load(&settings_path)
+                .expect("reload persisted unit choice")
+                .density,
+            DensityPreference::Compact
+        );
+        assert_eq!(
+            apply_byte_unit_system_selection(
+                "unknown",
+                &state,
+                &settings_state,
+                Some(&settings_path),
+            )
+            .expect("ignore unknown unit choice"),
             None
         );
         assert_eq!(
@@ -2650,6 +3451,77 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&test_directory).expect("remove test preferences directory");
+    }
+
+    #[test]
+    fn selecting_density_persists_it_without_overwriting_byte_units() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after the Unix epoch")
+            .as_nanos();
+        let test_directory = std::env::temp_dir().join(format!(
+            "native-monitor-density-selection-{}-{unique}",
+            std::process::id()
+        ));
+        let settings_path = test_directory.join("ui-settings.toml");
+        let settings_state = Mutex::new(UiSettings {
+            byte_unit_system: ByteUnitSystem::Si,
+            density: DensityPreference::Comfortable,
+        });
+
+        assert_eq!(
+            apply_density_selection("compact", &settings_state, Some(&settings_path))
+                .expect("persist compact density choice"),
+            Some(DensityPreference::Compact)
+        );
+        assert_eq!(
+            UiSettings::load(&settings_path).expect("reload density and unit preferences"),
+            UiSettings {
+                byte_unit_system: ByteUnitSystem::Si,
+                density: DensityPreference::Compact,
+            }
+        );
+        assert_eq!(
+            apply_density_selection("extra-compact", &settings_state, Some(&settings_path))
+                .expect("ignore unsupported density choice"),
+            None
+        );
+        assert_eq!(
+            UiSettings::load(&settings_path)
+                .expect("reload after ignoring unknown density")
+                .density,
+            DensityPreference::Compact
+        );
+
+        std::fs::remove_dir_all(&test_directory).expect("remove test preferences directory");
+    }
+
+    #[test]
+    fn density_selection_remains_in_session_when_persistence_fails() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after the Unix epoch")
+            .as_nanos();
+        let test_directory = std::env::temp_dir().join(format!(
+            "native-monitor-density-save-error-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&test_directory).expect("create isolated settings directory");
+        let blocking_parent = test_directory.join("not-a-directory");
+        std::fs::write(&blocking_parent, "fixture").expect("create a file blocking settings dir");
+        let settings_path = blocking_parent.join("ui-settings.toml");
+        let settings_state = Mutex::new(UiSettings::default());
+
+        assert!(apply_density_selection("compact", &settings_state, Some(&settings_path)).is_err());
+        assert_eq!(
+            settings_state
+                .lock()
+                .expect("read in-memory UI preferences")
+                .density,
+            DensityPreference::Compact
+        );
+
+        std::fs::remove_dir_all(&test_directory).expect("remove isolated settings directory");
     }
 
     #[test]
@@ -3312,6 +4184,56 @@ mod tests {
                     .as_str(),
                 "Filter by name or PID"
             );
+            window.set_has_selected_process(true);
+            window.set_process_control_supported(true);
+            window.set_process_action_state(ProcessActionUiState::Idle);
+            let mut request_process_action =
+                ElementHandle::find_by_accessible_label(&window, "End process…");
+            let request_process_action = request_process_action
+                .next()
+                .expect("find the process termination request button");
+            assert_eq!(
+                request_process_action.accessible_role(),
+                Some(i_slint_backend_testing::AccessibleRole::Button)
+            );
+
+            window.set_process_action_status(SharedString::from(
+                "Send a graceful termination request?",
+            ));
+            window.set_process_action_state(ProcessActionUiState::ConfirmGentle);
+            assert!(ElementHandle::find_by_accessible_label(&window, "Confirm")
+                .next()
+                .is_some());
+            assert!(ElementHandle::find_by_accessible_label(&window, "Cancel")
+                .next()
+                .is_some());
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "End process…").count(),
+                0,
+                "the initial action must be replaced by explicit confirmation"
+            );
+
+            window.set_process_action_status(SharedString::from(
+                "Waiting up to 5 seconds. Forced termination will never happen automatically.",
+            ));
+            window.set_process_action_state(ProcessActionUiState::WaitingGentle);
+            assert!(ElementHandle::find_by_accessible_label(&window, "Do not force")
+                .next()
+                .is_some());
+            window.set_process_action_state(ProcessActionUiState::ConfirmForce);
+            window.set_process_action_status(SharedString::from(
+                "The process is still running. Forced termination may cause data loss and cannot be undone. Continue?",
+            ));
+            assert!(ElementHandle::find_by_accessible_label(&window, "Force terminate")
+                .next()
+                .is_some());
+            window.set_process_control_supported(false);
+            assert_eq!(
+                ElementHandle::find_by_accessible_label(&window, "Force terminate").count(),
+                0,
+                "process actions must be hidden when the connected agent lacks support"
+            );
+            window.set_has_selected_process(false);
             window.set_processes(ModelRc::new(VecModel::from(Vec::new())));
             window.set_agent_connected(false);
             assert!(
@@ -3382,6 +4304,7 @@ mod tests {
                 );
             }
             window.set_active_page(MainPage::Storage);
+            window.set_volume_count(SharedString::from("4 volumes"));
             for label in [
                 "Units",
                 "Mount point",
@@ -3403,6 +4326,18 @@ mod tests {
                     "missing English storage label {label}"
                 );
             }
+            let volume_count = ElementHandle::find_by_accessible_label(&window, "4 volumes")
+                .next()
+                .expect("find the English storage volume count");
+            let units_label = ElementHandle::find_by_accessible_label(&window, "Units")
+                .next()
+                .expect("find the English storage units label");
+            let volume_count_end = volume_count.absolute_position().x + volume_count.size().width;
+            let units_label_start = units_label.absolute_position().x;
+            assert!(
+                units_label_start - volume_count_end >= 8.0,
+                "storage volume count and units label must retain an 8px gap"
+            );
             assert!(
                 ElementHandle::find_by_accessible_label(
                     &window,
@@ -3977,19 +4912,35 @@ mod tests {
                 std::process::id()
             ));
             let settings_path = settings_directory.join("ui-settings.toml");
+            let settings_state = Arc::new(Mutex::new(UiSettings::default()));
             window.on_byte_unit_system_selected({
                 let selected_byte_units = Rc::clone(&selected_byte_units);
                 let unit_state = Arc::clone(&unit_state);
+                let settings_state = Arc::clone(&settings_state);
                 let settings_path = settings_path.clone();
                 move |selection| {
                     let selected = apply_byte_unit_system_selection(
                         selection.as_str(),
                         &unit_state,
+                        &settings_state,
                         Some(&settings_path),
                     )
                     .expect("apply and persist UI byte unit selection");
                     assert!(selected.is_some());
                     selected_byte_units.borrow_mut().push(selection.to_string());
+                }
+            });
+            window.on_density_selected({
+                let settings_state = Arc::clone(&settings_state);
+                let settings_path = settings_path.clone();
+                move |selection| {
+                    let selected = apply_density_selection(
+                        selection.as_str(),
+                        &settings_state,
+                        Some(&settings_path),
+                    )
+                    .expect("apply and persist UI density selection");
+                    assert!(selected.is_some());
                 }
             });
             si_choice.single_click(PointerEventButton::Left).await;
@@ -4166,6 +5117,11 @@ mod tests {
                     *selected_key.borrow_mut() = Some(key.to_string());
                 }
             });
+            let process_action_commands = Rc::new(RefCell::new(Vec::<String>::new()));
+            window.on_process_action_command({
+                let process_action_commands = Rc::clone(&process_action_commands);
+                move |command| process_action_commands.borrow_mut().push(command.to_string())
+            });
 
             let mut targets =
                 ElementHandle::find_by_element_id(&window, "MainWindow::process_row_hit_target");
@@ -4180,6 +5136,19 @@ mod tests {
                 .expect("find the compact density choice");
             compact_choice.single_click(PointerEventButton::Left).await;
             assert_eq!(window.get_density(), UiDensity::Compact);
+            let persisted_compact_settings =
+                UiSettings::load(&settings_path).expect("reload persisted compact density");
+            assert_eq!(
+                persisted_compact_settings.density,
+                DensityPreference::Compact
+            );
+            assert_eq!(
+                persisted_compact_settings.byte_unit_system,
+                ByteUnitSystem::Iec
+            );
+            apply_ui_settings(&window, &persisted_compact_settings);
+            assert_eq!(window.get_density(), UiDensity::Compact);
+            assert_eq!(window.get_byte_unit_system(), UiByteUnitSystem::Iec);
 
             let mut comfortable_choices =
                 ElementHandle::find_by_element_id(&window, "MainWindow::density_comfortable");
@@ -4190,6 +5159,12 @@ mod tests {
                 .single_click(PointerEventButton::Left)
                 .await;
             assert_eq!(window.get_density(), UiDensity::Comfortable);
+            assert_eq!(
+                UiSettings::load(&settings_path)
+                    .expect("reload persisted comfortable density")
+                    .density,
+                DensityPreference::Comfortable
+            );
 
             target.single_click(PointerEventButton::Left).await;
 
@@ -4209,6 +5184,64 @@ mod tests {
             assert_eq!(
                 window.get_selected_process_memory_percent().as_str(),
                 "50,0%"
+            );
+            window.set_process_control_supported(true);
+            window.set_process_action_state(ProcessActionUiState::Idle);
+            let mut request_action_buttons =
+                ElementHandle::find_by_accessible_label(&window, "Encerrar processo…");
+            request_action_buttons
+                .next()
+                .expect("find the localized process action request")
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert_eq!(
+                process_action_commands.borrow().last().map(String::as_str),
+                Some("request-gentle")
+            );
+
+            window.set_process_action_status(SharedString::from(
+                "Enviar solicitação de encerramento gentil?",
+            ));
+            window.set_process_action_state(ProcessActionUiState::ConfirmGentle);
+            let mut confirm_action_buttons =
+                ElementHandle::find_by_accessible_label(&window, "Confirmar");
+            confirm_action_buttons
+                .next()
+                .expect("find the gentle termination confirmation")
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert_eq!(
+                process_action_commands.borrow().last().map(String::as_str),
+                Some("confirm-gentle")
+            );
+
+            window.set_process_action_state(ProcessActionUiState::WaitingGentle);
+            let mut escalation_cancellations =
+                ElementHandle::find_by_accessible_label(&window, "Não forçar");
+            escalation_cancellations
+                .next()
+                .expect("find the option that prevents force escalation")
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert_eq!(
+                process_action_commands.borrow().last().map(String::as_str),
+                Some("cancel")
+            );
+
+            window.set_process_action_state(ProcessActionUiState::ConfirmForce);
+            window.set_process_action_status(SharedString::from(
+                "O processo ainda está ativo. O encerramento forçado pode causar perda de dados e não pode ser desfeito. Continuar?",
+            ));
+            let mut force_action_buttons =
+                ElementHandle::find_by_accessible_label(&window, "Forçar encerramento");
+            force_action_buttons
+                .next()
+                .expect("find the separately confirmed force action")
+                .single_click(PointerEventButton::Left)
+                .await;
+            assert_eq!(
+                process_action_commands.borrow().last().map(String::as_str),
+                Some("confirm-force")
             );
 
             let dispatch_shortcut = |digit: &str| {
@@ -4594,5 +5627,84 @@ mod tests {
             memory_bytes,
             start_time_unix_seconds: 1,
         }
+    }
+
+    fn benchmark_process_table_update(
+        window: &MainWindow,
+        fixture: &[ProcessMetrics],
+        filter: &str,
+        sort: ProcessSort,
+        now_unix_ms: u64,
+        catalogs: &UiCatalogs,
+    ) -> (Duration, usize) {
+        let mut processes = fixture.to_vec();
+        let started = Instant::now();
+        let normalized_filter = filter.to_lowercase();
+        if !normalized_filter.is_empty() {
+            processes.retain(|process| {
+                process.name.to_lowercase().contains(&normalized_filter)
+                    || process.pid.to_string().contains(&normalized_filter)
+            });
+        }
+        sort_processes(&mut processes, sort);
+
+        let rows = processes
+            .iter()
+            .map(|process| {
+                process_row(
+                    process,
+                    Some(64 * 1_073_741_824),
+                    now_unix_ms,
+                    Locale::EnUs,
+                    ByteUnitSystem::Iec,
+                    catalogs,
+                )
+            })
+            .collect::<Vec<_>>();
+        let row_count = rows.len();
+        window.set_process_count(SharedString::from(row_count.to_string()));
+        window.set_process_count_description(SharedString::from(catalogs.format_count(
+            CountKind::Processes,
+            row_count,
+            Locale::EnUs,
+        )));
+        window.set_processes(ModelRc::new(VecModel::from(rows)));
+
+        let snapshot = window
+            .window()
+            .take_snapshot()
+            .expect("render the updated process table");
+        std::hint::black_box(snapshot);
+        (started.elapsed(), row_count)
+    }
+
+    fn measure_ui_latency(
+        scenario: &str,
+        mut operation: impl FnMut() -> Duration,
+    ) -> (Duration, Duration) {
+        const WARMUP_SAMPLES: usize = 10;
+        const MEASURED_SAMPLES: usize = 100;
+
+        for _ in 0..WARMUP_SAMPLES {
+            std::hint::black_box(operation());
+        }
+
+        let mut samples = Vec::with_capacity(MEASURED_SAMPLES);
+        for _ in 0..MEASURED_SAMPLES {
+            samples.push(operation());
+        }
+        samples.sort_unstable();
+
+        let p95_index = (MEASURED_SAMPLES * 95).div_ceil(100) - 1;
+        let p95 = samples[p95_index];
+        let maximum = *samples
+            .last()
+            .expect("the UI benchmark collected measured samples");
+        println!(
+            "ui_benchmark scenario={scenario} warmup={WARMUP_SAMPLES} samples={MEASURED_SAMPLES} p95_ms={:.3} max_ms={:.3} renderer=slint-software window=1120x720",
+            p95.as_secs_f64() * 1_000.0,
+            maximum.as_secs_f64() * 1_000.0,
+        );
+        (p95, maximum)
     }
 }

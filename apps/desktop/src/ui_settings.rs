@@ -63,10 +63,36 @@ impl ByteUnitSystem {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DensityPreference {
+    #[default]
+    Comfortable,
+    Compact,
+}
+
+impl DensityPreference {
+    pub fn from_selection(value: &str) -> Option<Self> {
+        match value {
+            "comfortable" => Some(Self::Comfortable),
+            "compact" => Some(Self::Compact),
+            _ => None,
+        }
+    }
+
+    pub fn ui_value(self) -> crate::UiDensity {
+        match self {
+            Self::Comfortable => crate::UiDensity::Comfortable,
+            Self::Compact => crate::UiDensity::Compact,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UiSettings {
     pub byte_unit_system: ByteUnitSystem,
+    pub density: DensityPreference,
 }
 
 impl UiSettings {
@@ -156,13 +182,14 @@ pub fn default_settings_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ByteUnitSystem, ConfigPlatform, UiSettings, config_file_path};
+    use super::{ByteUnitSystem, ConfigPlatform, DensityPreference, UiSettings, config_file_path};
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn defaults_to_iec_and_parses_only_supported_ui_choices() {
+    fn defaults_to_iec_and_comfortable_and_parses_supported_ui_choices() {
         assert_eq!(ByteUnitSystem::default(), ByteUnitSystem::Iec);
+        assert_eq!(DensityPreference::default(), DensityPreference::Comfortable);
         assert_eq!(
             ByteUnitSystem::from_selection("si"),
             Some(ByteUnitSystem::Si)
@@ -173,8 +200,25 @@ mod tests {
         );
         assert_eq!(ByteUnitSystem::from_selection("SI"), None);
         assert_eq!(ByteUnitSystem::from_selection("other"), None);
+        assert_eq!(
+            DensityPreference::from_selection("comfortable"),
+            Some(DensityPreference::Comfortable)
+        );
+        assert_eq!(
+            DensityPreference::from_selection("compact"),
+            Some(DensityPreference::Compact)
+        );
+        assert_eq!(DensityPreference::from_selection("extra-compact"), None);
         assert_eq!(ByteUnitSystem::from_code(1), ByteUnitSystem::Si);
         assert_eq!(ByteUnitSystem::from_code(99), ByteUnitSystem::Iec);
+        assert_eq!(
+            DensityPreference::Comfortable.ui_value(),
+            crate::UiDensity::Comfortable
+        );
+        assert_eq!(
+            DensityPreference::Compact.ui_value(),
+            crate::UiDensity::Compact
+        );
     }
 
     #[test]
@@ -190,6 +234,7 @@ mod tests {
         let settings_path = test_directory.join("nested").join("ui-settings.toml");
         let settings = UiSettings {
             byte_unit_system: ByteUnitSystem::Si,
+            density: DensityPreference::Compact,
         };
 
         settings
@@ -198,6 +243,7 @@ mod tests {
         let serialized =
             std::fs::read_to_string(&settings_path).expect("read the serialized preferences file");
         assert!(serialized.contains("byte_unit_system = \"si\""));
+        assert!(serialized.contains("density = \"compact\""));
 
         assert_eq!(
             UiSettings::load(&settings_path).expect("read back persisted preferences"),
@@ -222,6 +268,10 @@ mod tests {
             UiSettings::load(&settings_path).expect("missing settings use defaults"),
             UiSettings::default()
         );
+        let previous_settings: UiSettings =
+            toml::from_str("byte_unit_system = \"si\"\n").expect("parse the previous schema");
+        assert_eq!(previous_settings.byte_unit_system, ByteUnitSystem::Si);
+        assert_eq!(previous_settings.density, DensityPreference::Comfortable);
         std::fs::create_dir_all(&test_directory).expect("create test preferences directory");
         std::fs::write(&settings_path, "unknown = true\n").expect("write malformed preferences");
         assert!(UiSettings::load(&settings_path).is_err());

@@ -9,6 +9,24 @@ enum Operation {
   OPERATION_SNAPSHOT = 3;
   OPERATION_PROCESSES = 4;
   OPERATION_PROCESS_TREE = 5;
+  OPERATION_PROCESS_CONTROL = 6;
+}
+
+enum ProcessAction {
+  PROCESS_ACTION_UNSPECIFIED = 0;
+  PROCESS_ACTION_GENTLE = 1;
+  PROCESS_ACTION_FORCE = 2;
+}
+
+enum ProcessActionResult {
+  PROCESS_ACTION_RESULT_UNSPECIFIED = 0;
+  PROCESS_ACTION_RESULT_SUBMITTED = 1;
+  PROCESS_ACTION_RESULT_NO_WINDOW_FOUND = 2;
+  PROCESS_ACTION_RESULT_PROCESS_NOT_FOUND = 3;
+  PROCESS_ACTION_RESULT_IDENTITY_MISMATCH = 4;
+  PROCESS_ACTION_RESULT_PERMISSION_DENIED = 5;
+  PROCESS_ACTION_RESULT_UNSUPPORTED = 6;
+  PROCESS_ACTION_RESULT_FAILED = 7;
 }
 
 message Request {
@@ -22,6 +40,7 @@ message Request {
   string process_sort_key = 8;
   uint32 process_pid = 9;
   uint64 process_start_time_unix_seconds = 10;
+  ProcessAction process_action = 11;
 }
 
 message Response {
@@ -32,6 +51,7 @@ message Response {
   repeated Capability capabilities = 5;
   Snapshot snapshot = 6;
   uint32 protocol_minor = 7;
+  ProcessActionResult process_action_result = 8;
 }
 
 message Capability {
