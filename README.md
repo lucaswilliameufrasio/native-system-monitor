@@ -1,8 +1,9 @@
 # Native System Monitor
 
 Monitor de sistema nativo para desktop, escrito em Rust e com interface Slint.
-O produto ainda está em desenvolvimento; este primeiro slice executável coleta
-CPU, memória e processos no agente e expõe os dados à GUI e à CLI por IPC local.
+O produto ainda está em desenvolvimento; o checkout atual inclui agente
+independente, GUI e CLI sobre IPC local, com coleta comum e fatias específicas
+de plataforma descritas abaixo. Ainda não é uma release V1 homologada.
 
 ## Status
 
@@ -15,14 +16,30 @@ CPU, memória e processos no agente e expõe os dados à GUI e à CLI por IPC lo
   uninstall depende do empacotamento futuro.
 - CPU começa como “aquecendo” até existir uma amostra delta válida. Dados
   indisponíveis não são apresentados como zero.
-- A lista de processos mostra nome, PID, processo pai, CPU e RAM. Linha de
-  comando e outros dados sensíveis não são coletados neste slice.
+- A lista de processos mostra nome, PID, processo pai, CPU e RAM. A árvore é
+  somente leitura. O encerramento de processos usa as permissões normais do
+  agente, pede confirmação para o encerramento gentil e exige uma segunda
+  confirmação antes de qualquer encerramento forçado; não há helper elevado.
+- No Linux, o snapshot também pode incluir volumes, I/O de dispositivos de bloco,
+  interfaces de rede e bateria. NVIDIA é opcional via NVML; adaptadores AMD/Intel
+  Linux são experimentais e continuam `unsupported` até homologação em hardware
+  real. Ausência de dados não é convertida em zero.
+- A GUI oferece pt-BR/en-US, preferências locais SI/IEC e densidade confortável/
+  compacta. Preferências de bytes usam IEC e a densidade confortável por padrão.
 - Histórico CPU/RAM é mantido em memória no agente, limitado ao número de
   amostras configurado (300 por padrão). É perdido quando o agente é encerrado.
+- Prometheus scrape e Remote Write são opcionais e desativados por padrão. A fila
+  Remote Write é limitada e volátil; ainda não há integração com Vault/credential
+  stores nem spool durável. Use somente receptores que não exijam autenticação.
 - As plataformas-alvo do plano são macOS Apple Silicon, Linux x86_64/aarch64 e
-  Windows 11 x64. A execução local validada neste checkout é Linux x86_64; os
-  outros alvos dependem da CI e de testes em máquinas reais.
-- A licença final permanece pendente da auditoria indicada no plano.
+  Windows 11 x64. CI executada para `2504195` passou em Ubuntu, macOS e Windows;
+  isso valida os checks automatizados, não substitui execução nativa, QA visual ou
+  ensaios de hardware por sistema. A allow-list de terceiros está em alteração
+  local: passou `cargo deny check licenses`, mas ainda não foi validada por CI
+  remota.
+- A licença do projeto é MIT (`LICENSE`, copyright 2026). A allow-list aprovada
+  dos identificadores de terceiros está em `deny.toml` e ADR-018; o scanner não é
+  parecer jurídico nem aprovação automática de novos identificadores.
 
 ## Desenvolvimento local
 

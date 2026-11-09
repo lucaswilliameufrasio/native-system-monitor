@@ -26,8 +26,8 @@ As mudanças relevantes deste projeto serão registradas neste arquivo.
 
 - Taxas de I/O de volumes usam baselines de counters por ponto de montagem e
   tempo monotônico; I/O de dispositivo continua sendo uma métrica separada.
-- CI audita dependências Rust no Linux e exige o lockfile versionado em Clippy,
-  testes e builds.
+- CI audita advisories RustSec e as licenças declaradas das dependências no Linux;
+  Clippy, testes e builds exigem o lockfile versionado.
 - Licença do projeto definida como MIT, com `LICENSE` e aviso de copyright de
   2026.
 - Distribuição macOS planejada com `.app`/`.dmg` sem assinatura/notarização;
@@ -47,5 +47,6 @@ As mudanças relevantes deste projeto serão registradas neste arquivo.
   input-to-frame nativo. A opção de densidade extra compacta do plano ainda não
   foi definida nem implementada.
 - Este é um resumo de desenvolvimento não lançado, não um registro de release.
-  Homologação de instaladores e proveniência continuam pendentes; a allow-list
-  das licenças de terceiros ainda não foi aprovada.
+  Homologação de instaladores e proveniência continuam pendentes. A allow-list
+  de terceiros foi aprovada e registrada em ADR-018; o novo passo de CI ainda
+  aguarda validação remota.

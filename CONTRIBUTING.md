@@ -36,25 +36,29 @@ pontos; não mede entrada nativa do SO, IPC de produção ou GPU física:
 SLINT_EMIT_DEBUG_INFO=1 cargo test --locked -p native-monitor-desktop ui_performance_budget_10k_processes_and_1200_chart_points --release -- --ignored --nocapture
 ```
 
-## Auditoria manual de dependências
+## Auditoria de dependências e licenças
 
-Com `cargo-audit` instalado, execute na raiz para atualizar a base RustSec e
-verificar o `Cargo.lock`:
+Execute na raiz para verificar advisories RustSec e a allow-list de licenças
+aprovada em [`deny.toml`](deny.toml) / [ADR-018](docs/adr/018-third-party-license-allowlist.md):
 
 ```sh
 cargo install cargo-audit --version 0.22.2 --locked
 cargo audit
+cargo install cargo-deny --version 0.20.2 --locked
+cargo deny check licenses
 ```
 
-O CI também instala essa versão e executa a auditoria na perna Linux; ela não é
-repetida nas pernas macOS/Windows.
+O CI executa `cargo audit` e `cargo deny check licenses` na perna Linux; essas
+checagens não são repetidas nas pernas macOS/Windows.
 
 `cargo audit --no-fetch` usa apenas a cópia local da base de advisories e deve
 ser tratado como evidência com timestamp, não como garantia de atualização. Os
 avisos de dependências não mantidas/yanked devem ser revisados, não silenciados
-automaticamente. A política de allow-list de licenças ainda aguarda revisão e
-configuração aprovada; não marque `cargo deny check licenses` como gate verde
-até essa decisão.
+automaticamente. A allow-list atual reflete os identificadores do inventário de
+2026-11-09 aprovados pelo responsável, inclusive as opções GPL/LicenseRef do
+Slint e LGPL de `r-efi`; novos identificadores continuam bloqueados até revisão.
+O resultado do scanner valida metadados SPDX, não constitui parecer jurídico nem
+substitui revisão dos textos e termos de distribuição aplicáveis.
 
 ## Inventário CycloneDX
 
@@ -115,5 +119,5 @@ capacidade, e não acessa a rede externa.
 - Não inclua tokens, chaves, configurações locais ou dados de máquina em commits.
 - O projeto adota a licença MIT; o titular confirmou o ano de copyright 2026 e
   autorizou usar o nome de autoria dos commits (`Lucas Eufrasio`) no aviso em
-  `LICENSE`. A allow-list das licenças de terceiros ainda depende de revisão e
-  aprovação explícitas.
+  `LICENSE`. A política aprovada para dependências de terceiros está registrada
+  em ADR-018 e é verificada por `cargo deny check licenses`.
