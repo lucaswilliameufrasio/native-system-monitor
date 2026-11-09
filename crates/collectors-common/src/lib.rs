@@ -471,6 +471,7 @@ fn compare_cpu_usage(left: Option<f32>, right: Option<f32>) -> std::cmp::Orderin
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn merge_gpu_results(
     (mut first_gpus, first_status): (Vec<native_monitor_domain::GpuMetrics>, MetricStatus),
     (mut second_gpus, second_status): (Vec<native_monitor_domain::GpuMetrics>, MetricStatus),
