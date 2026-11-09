@@ -48,5 +48,5 @@ As mudanças relevantes deste projeto serão registradas neste arquivo.
   foi definida nem implementada.
 - Este é um resumo de desenvolvimento não lançado, não um registro de release.
   Homologação de instaladores e proveniência continuam pendentes. A allow-list
-  de terceiros foi aprovada e registrada em ADR-018; o novo passo de CI ainda
-  aguarda validação remota.
+  de terceiros foi aprovada e registrada em ADR-018; o novo gate passou na CI
+  Linux/macOS/Windows (execução 42593553670, commit `637ed3b`).

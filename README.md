@@ -32,11 +32,9 @@ de plataforma descritas abaixo. Ainda não é uma release V1 homologada.
   Remote Write é limitada e volátil; ainda não há integração com Vault/credential
   stores nem spool durável. Use somente receptores que não exijam autenticação.
 - As plataformas-alvo do plano são macOS Apple Silicon, Linux x86_64/aarch64 e
-  Windows 11 x64. CI executada para `2504195` passou em Ubuntu, macOS e Windows;
-  isso valida os checks automatizados, não substitui execução nativa, QA visual ou
-  ensaios de hardware por sistema. A allow-list de terceiros está em alteração
-  local: passou `cargo deny check licenses`, mas ainda não foi validada por CI
-  remota.
+  Windows 11 x64. CI para `637ed3b` passou em Ubuntu, macOS e Windows, incluindo o
+  gate de licenças no Linux; isso valida os checks automatizados, não substitui QA
+  visual nem ensaios de hardware por sistema.
 - A licença do projeto é MIT (`LICENSE`, copyright 2026). A allow-list aprovada
   dos identificadores de terceiros está em `deny.toml` e ADR-018; o scanner não é
   parecer jurídico nem aprovação automática de novos identificadores.
