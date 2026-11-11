@@ -81,6 +81,12 @@ reavaliado antes de colocar o gerador em CI/release.
 
 ## Ensaios opt-in
 
+Relatos de métricas em hardware real devem seguir o
+[guia de validação voluntária](docs/HARDWARE_VALIDATION.md): rode como usuário
+normal, não compartilhe identificadores únicos nem logs integrais e informe
+versão/commit, driver/runtime, condições e campos ausentes. Um relato comunitário
+é evidência para revisão; não homologa sozinho uma capability.
+
 Os ensaios Remote Write iniciam containers locais descartáveis e usam somente
 loopback:
 

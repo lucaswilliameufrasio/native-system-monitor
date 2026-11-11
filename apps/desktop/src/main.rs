@@ -3627,7 +3627,7 @@ mod tests {
                 (
                     Locale::PtBr,
                     UiLanguage::PtBr,
-                    "Aguardando primeira amostra",
+                    "Aguardando a primeira amostra",
                 ),
                 (
                     Locale::EnUs,
@@ -3637,7 +3637,7 @@ mod tests {
                 (
                     Locale::PtBr,
                     UiLanguage::PtBr,
-                    "Aguardando primeira amostra",
+                    "Aguardando a primeira amostra",
                 ),
             ] {
                 window.set_language(language);
@@ -3951,7 +3951,7 @@ mod tests {
             );
             let mut portuguese_shortcuts = ElementHandle::find_by_accessible_label(
                 &window,
-                "Atalho: Control mais 1 a 5 troca de página",
+                "Atalho de teclado: Control mais um número de 1 a 5 alterna entre páginas",
             );
             assert!(portuguese_shortcuts.next().is_some());
             for label in [
@@ -3974,7 +3974,10 @@ mod tests {
                     .is_some()
             );
             assert!(
-                ElementHandle::find_by_accessible_label(&window, "Amostra há 1.234 min")
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Amostra coletada há 1.234 min",
+                )
                     .next()
                     .is_some()
             );
@@ -4008,7 +4011,10 @@ mod tests {
                     .is_some()
             );
             assert!(
-                ElementHandle::find_by_accessible_label(&window, "Sample 1,234 min ago")
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Sample collected 1,234 min ago",
+                )
                     .next()
                     .is_some()
             );
@@ -4396,7 +4402,7 @@ mod tests {
             window.set_active_page(MainPage::Overview);
             let mut english_shortcuts = ElementHandle::find_by_accessible_label(
                 &window,
-                "Keyboard shortcut: Control plus 1 through 5 switches pages",
+                "Keyboard shortcut: Press Control and a number from 1 to 5 to switch pages",
             );
             assert!(english_shortcuts.next().is_some());
             let mut english_swap_panels = ElementHandle::find_by_accessible_label(&window, "Swap");
@@ -4503,7 +4509,7 @@ mod tests {
                     .accessible_description()
                     .expect("unsorted Portuguese description is accessible")
                     .as_str(),
-                "Não ordenado por esta coluna"
+                "A lista não está ordenada por esta coluna"
             );
             window.set_sort_key(SharedString::from("name"));
             window.set_sort_descending(false);
@@ -4512,7 +4518,7 @@ mod tests {
                     .accessible_description()
                     .expect("ascending Portuguese description is accessible")
                     .as_str(),
-                "Classificação crescente"
+                "Ordenação crescente"
             );
             window.set_sort_descending(true);
             assert_eq!(
@@ -4520,7 +4526,7 @@ mod tests {
                     .accessible_description()
                     .expect("descending Portuguese description is accessible")
                     .as_str(),
-                "Classificação decrescente"
+                "Ordenação decrescente"
             );
             window.set_sort_key(SharedString::from("cpu"));
             window.set_sort_descending(true);
@@ -4588,7 +4594,10 @@ mod tests {
                     .is_some()
             );
             assert!(
-                ElementHandle::find_by_accessible_label(&window, "Amostra há 1.234 min")
+                ElementHandle::find_by_accessible_label(
+                    &window,
+                    "Amostra coletada há 1.234 min",
+                )
                     .next()
                     .is_some()
             );
@@ -4820,8 +4829,8 @@ mod tests {
                 "Total",
                 "Atividade por dispositivo de bloco (Linux)",
                 "Dispositivo",
-                "IOPS leitura",
-                "IOPS gravação",
+                "IOPS de leitura",
+                "IOPS de gravação",
                 "Ocupação",
             ] {
                 assert!(
@@ -5063,7 +5072,7 @@ mod tests {
                     .accessible_description()
                     .expect("the process sort header describes its sort state")
                     .as_str(),
-                "Não ordenado por esta coluna"
+                "A lista não está ordenada por esta coluna"
             );
             window.set_sort_key(SharedString::from("name"));
             window.set_sort_descending(false);
@@ -5072,7 +5081,7 @@ mod tests {
                     .accessible_description()
                     .expect("ascending sort description is accessible")
                     .as_str(),
-                "Classificação crescente"
+                "Ordenação crescente"
             );
             window.set_sort_descending(true);
             assert_eq!(
@@ -5080,7 +5089,7 @@ mod tests {
                     .accessible_description()
                     .expect("descending sort description is accessible")
                     .as_str(),
-                "Classificação decrescente"
+                "Ordenação decrescente"
             );
             window.set_sort_key(SharedString::from("cpu"));
 
@@ -5200,7 +5209,7 @@ mod tests {
             );
 
             window.set_process_action_status(SharedString::from(
-                "Enviar solicitação de encerramento gentil?",
+                "Enviar solicitação para encerrar o processo normalmente?",
             ));
             window.set_process_action_state(ProcessActionUiState::ConfirmGentle);
             let mut confirm_action_buttons =
@@ -5261,6 +5270,47 @@ mod tests {
                 });
             };
 
+            let dispatch_key = |key: slint::platform::Key| {
+                use slint::platform::WindowEvent;
+
+                let text: SharedString = key.into();
+                window
+                    .window()
+                    .dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+                window
+                    .window()
+                    .dispatch_event(WindowEvent::KeyReleased { text });
+            };
+
+            window.set_active_page(MainPage::Network);
+            dispatch_key(slint::platform::Key::Tab);
+            dispatch_key(slint::platform::Key::Return);
+            assert_eq!(
+                window.get_active_page(),
+                MainPage::Overview,
+                "Tab should focus the first navigation tab, which Enter activates"
+            );
+
+            dispatch_key(slint::platform::Key::DownArrow);
+            assert_eq!(window.get_active_page(), MainPage::Processes);
+            dispatch_key(slint::platform::Key::LeftArrow);
+            assert_eq!(window.get_active_page(), MainPage::Overview);
+            dispatch_key(slint::platform::Key::UpArrow);
+            assert_eq!(window.get_active_page(), MainPage::Network);
+            dispatch_key(slint::platform::Key::Home);
+            assert_eq!(window.get_active_page(), MainPage::Overview);
+            dispatch_key(slint::platform::Key::End);
+            assert_eq!(window.get_active_page(), MainPage::Network);
+
+            dispatch_key(slint::platform::Key::Home);
+            window.set_active_page(MainPage::Network);
+            dispatch_key(slint::platform::Key::Space);
+            assert_eq!(window.get_active_page(), MainPage::Overview);
+            window.set_active_page(MainPage::Network);
+            dispatch_key(slint::platform::Key::Return);
+            assert_eq!(window.get_active_page(), MainPage::Overview);
+            dispatch_key(slint::platform::Key::RightArrow);
+            assert_eq!(window.get_active_page(), MainPage::Processes);
             dispatch_shortcut("5");
             assert_eq!(window.get_active_page(), MainPage::Network);
             window.set_network_interfaces(ModelRc::new(VecModel::from(vec![
@@ -5482,7 +5532,7 @@ mod tests {
                 &catalogs,
                 Locale::PtBr,
             ),
-            "Aguardando primeira amostra"
+            "Aguardando a primeira amostra"
         );
         assert_eq!(
             sample_age_status_text(
@@ -5492,7 +5542,7 @@ mod tests {
                 &catalogs,
                 Locale::PtBr,
             ),
-            "Amostra há menos de 1 s"
+            "Amostra coletada há menos de 1 s"
         );
         assert_eq!(
             sample_age_status_text(
@@ -5502,7 +5552,7 @@ mod tests {
                 &catalogs,
                 Locale::PtBr,
             ),
-            "Amostra há 5 s"
+            "Amostra coletada há 5 s"
         );
         assert_eq!(
             sample_age_status_text(
@@ -5512,7 +5562,7 @@ mod tests {
                 &catalogs,
                 Locale::PtBr,
             ),
-            "Amostra há menos de 1 s"
+            "Amostra coletada há menos de 1 s"
         );
         assert_eq!(
             sample_age_status_text(
@@ -5532,7 +5582,7 @@ mod tests {
                 &catalogs,
                 Locale::PtBr,
             ),
-            "Amostra há 1.234 min"
+            "Amostra coletada há 1.234 min"
         );
         assert_eq!(
             sample_age_status_text(
@@ -5542,7 +5592,7 @@ mod tests {
                 &catalogs,
                 Locale::EnUs,
             ),
-            "Sample 1,234 min ago"
+            "Sample collected 1,234 min ago"
         );
         assert_eq!(
             sample_age_status_text(

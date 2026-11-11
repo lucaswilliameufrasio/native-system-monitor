@@ -23,7 +23,9 @@ de plataforma descritas abaixo. Ainda não é uma release V1 homologada.
 - No Linux, o snapshot também pode incluir volumes, I/O de dispositivos de bloco,
   interfaces de rede e bateria. NVIDIA é opcional via NVML; adaptadores AMD/Intel
   Linux são experimentais e continuam `unsupported` até homologação em hardware
-  real. Ausência de dados não é convertida em zero.
+  real. Ausência de dados não é convertida em zero. Contribuidores podem usar o
+  [guia de validação voluntária em hardware](docs/HARDWARE_VALIDATION.md); relatos
+  não mudam o estado de suporte sem revisão.
 - A GUI oferece pt-BR/en-US, preferências locais SI/IEC e densidade confortável/
   compacta. Preferências de bytes usam IEC e a densidade confortável por padrão.
 - Histórico CPU/RAM é mantido em memória no agente, limitado ao número de

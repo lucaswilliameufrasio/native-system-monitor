@@ -19,8 +19,12 @@ As mudanças relevantes deste projeto serão registradas neste arquivo.
 - Controle de processos no escopo do usuário: pedido gentil, espera de cinco
   segundos e confirmação separada para a ação forçada, com resultados localizados
   e registro local sem command line.
+- Navegação por abas com teclado: foco visível, ativação por Enter/Espaço,
+  movimentação por setas e saltos Home/End.
 - Benchmark manual de desempenho da UI com renderer Slint software para cenários
   sintéticos de 10.000 processos e gráficos com 1.200 pontos.
+- Guia para relatos voluntários de validação em hardware, com roteiro reproduzível,
+  cuidados de privacidade e distinção entre evidência comunitária e homologação.
 
 ### Alterado
 

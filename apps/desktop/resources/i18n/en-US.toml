@@ -7,7 +7,7 @@ language-pt-br-short = "PT"
 language-en-us-short = "EN"
 agent-active = "Agent active"
 agent-unavailable = "Agent unavailable"
-setup-startup = "Setup startup"
+setup-startup = "Configure automatic startup"
 retry-connection = "Retry connection"
 
 [connection-status]
@@ -39,7 +39,7 @@ storage = "Storage"
 network = "Network"
 collection-continues = "Collection continues\nwhen the window is closed"
 keyboard-shortcut = "Ctrl+1–5: switch pages"
-keyboard-shortcut-accessible = "Keyboard shortcut: Control plus 1 through 5 switches pages"
+keyboard-shortcut-accessible = "Keyboard shortcut: Press Control and a number from 1 to 5 to switch pages"
 
 [density]
 comfortable = "Comfortable"
@@ -97,9 +97,9 @@ no-network-interfaces = "No network interfaces available."
 
 [sample-age]
 waiting-first-sample = "Waiting for the first sample"
-less-than-second = "Sample less than 1 s ago"
-seconds-ago = "Sample {amount} s ago"
-minutes-ago = "Sample {amount} min ago"
+less-than-second = "Sample collected less than 1 s ago"
+seconds-ago = "Sample collected {amount} s ago"
+minutes-ago = "Sample collected {amount} min ago"
 no-recent-sample = "No recent sample"
 
 [process-age]

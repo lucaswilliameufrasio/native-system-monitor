@@ -36,7 +36,7 @@ retries transitórios e credenciais guardadas fora do TOML.
   revogação e `credential_ref` permanecem pendentes. A configuração aceita apenas
   receptores que não exijam autenticação até essa integração existir.
 
-## Decisão posterior: custódia de credenciais (2026-11-09)
+## Decisões posteriores: custódia de credenciais (2026-11-09 e 2026-11-10)
 
 O responsável pelo projeto escolheu **Vault auto-hospedado** como a custódia a
 integrar para credenciais do Remote Write. A escolha não significa que a
@@ -45,6 +45,17 @@ versão, ambiente e endereço, identidade usada pelo agente para autenticar no
 Vault, escopo de acesso, caminho/namespace dos segredos, renovação, rotação,
 revogação e recuperação ainda precisam ser definidos antes de habilitar destinos
 autenticados. Não colocar valores secretos em TOML, URLs, argumentos ou logs.
+
+Em 2026-11-10, foi escolhida a custódia **por usuário no credential store nativo
+do sistema operacional** para a credencial com que o agente autentica no Vault.
+Ela é distinta da credencial do receptor Remote Write: esta permanece no Vault e
+deve ser referenciada, não copiada para a configuração local. Esta decisão não
+escolhe o método/tipo da credencial Vault, enrollment, permissões/audience,
+caminho do segredo Remote Write, expiração, renovação, rotação, revogação,
+recuperação ou comportamento quando o credential store estiver indisponível.
+Esses contratos continuam pendentes; não presumir fallback em texto claro. Até
+serem definidos e implementados, destinos que exigem autenticação permanecem
+indisponíveis.
 
 Foi escolhido armazenar o spool durável no diretório de estado da aplicação
 pertencente ao usuário do agente. A localização exata por sistema operacional,

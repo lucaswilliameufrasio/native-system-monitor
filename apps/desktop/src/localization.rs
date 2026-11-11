@@ -2009,7 +2009,7 @@ mod tests {
         assert_eq!(portuguese.language_en_us_short, "EN");
         assert_eq!(portuguese.agent_active, "Agente ativo");
         assert_eq!(portuguese.agent_unavailable, "Agente indisponível");
-        assert_eq!(portuguese.setup_startup, "Configurar início");
+        assert_eq!(portuguese.setup_startup, "Configurar início automático");
         assert_eq!(portuguese.retry_connection, "Tentar conexão");
 
         assert_eq!(english.title, "System Monitor");
@@ -2020,7 +2020,7 @@ mod tests {
         assert_eq!(english.language_en_us_short, "EN");
         assert_eq!(english.agent_active, "Agent active");
         assert_eq!(english.agent_unavailable, "Agent unavailable");
-        assert_eq!(english.setup_startup, "Setup startup");
+        assert_eq!(english.setup_startup, "Configure automatic startup");
         assert_eq!(english.retry_connection, "Retry connection");
     }
 
@@ -2144,10 +2144,13 @@ mod tests {
             portuguese.collection_continues,
             "A coleta continua\ncom a janela fechada"
         );
-        assert_eq!(portuguese.keyboard_shortcut, "Ctrl+1–5: trocar páginas");
+        assert_eq!(
+            portuguese.keyboard_shortcut,
+            "Ctrl+1–5: alternar entre páginas"
+        );
         assert_eq!(
             portuguese.keyboard_shortcut_accessible,
-            "Atalho: Control mais 1 a 5 troca de página"
+            "Atalho de teclado: Control mais um número de 1 a 5 alterna entre páginas"
         );
 
         assert_eq!(english.section, "MONITORING");
@@ -2164,7 +2167,7 @@ mod tests {
         assert_eq!(english.keyboard_shortcut, "Ctrl+1–5: switch pages");
         assert_eq!(
             english.keyboard_shortcut_accessible,
-            "Keyboard shortcut: Control plus 1 through 5 switches pages"
+            "Keyboard shortcut: Press Control and a number from 1 to 5 to switch pages"
         );
     }
 
@@ -2229,15 +2232,12 @@ mod tests {
         assert_eq!(portuguese.memory_accessible_label, "memória");
         assert_eq!(
             portuguese.sort_unsorted_description,
-            "Não ordenado por esta coluna"
+            "A lista não está ordenada por esta coluna"
         );
-        assert_eq!(
-            portuguese.sort_ascending_description,
-            "Classificação crescente"
-        );
+        assert_eq!(portuguese.sort_ascending_description, "Ordenação crescente");
         assert_eq!(
             portuguese.sort_descending_description,
-            "Classificação decrescente"
+            "Ordenação decrescente"
         );
         assert_eq!(
             portuguese.empty_filtered,
@@ -2451,7 +2451,7 @@ mod tests {
             ),
             (
                 UnsupportedCapability::BlockDeviceIo,
-                "Agente sem suporte a I/O de dispositivos nesta versão",
+                "Agente sem suporte a I/O de dispositivos de bloco nesta versão",
                 "Agent does not support block device I/O in this version",
             ),
         ];
@@ -2487,23 +2487,23 @@ mod tests {
         let cases = [
             (
                 SampleAgeLabel::WaitingForFirstSample,
-                "Aguardando primeira amostra",
+                "Aguardando a primeira amostra",
                 "Waiting for the first sample",
             ),
             (
                 SampleAgeLabel::LessThanSecond,
-                "Amostra há menos de 1 s",
-                "Sample less than 1 s ago",
+                "Amostra coletada há menos de 1 s",
+                "Sample collected less than 1 s ago",
             ),
             (
                 SampleAgeLabel::SecondsAgo(5),
-                "Amostra há 5 s",
-                "Sample 5 s ago",
+                "Amostra coletada há 5 s",
+                "Sample collected 5 s ago",
             ),
             (
                 SampleAgeLabel::MinutesAgo(1_234),
-                "Amostra há 1.234 min",
-                "Sample 1,234 min ago",
+                "Amostra coletada há 1.234 min",
+                "Sample collected 1,234 min ago",
             ),
             (
                 SampleAgeLabel::NoRecentSample,
@@ -2570,8 +2570,8 @@ mod tests {
             "Atividade por dispositivo de bloco (Linux)"
         );
         assert_eq!(portuguese_storage.device, "Dispositivo");
-        assert_eq!(portuguese_storage.read_iops, "IOPS leitura");
-        assert_eq!(portuguese_storage.write_iops, "IOPS gravação");
+        assert_eq!(portuguese_storage.read_iops, "IOPS de leitura");
+        assert_eq!(portuguese_storage.write_iops, "IOPS de gravação");
         assert_eq!(portuguese_storage.busy, "Ocupação");
 
         assert_eq!(english_storage.units, "Units");
@@ -2657,6 +2657,18 @@ mod tests {
             "Select a process to view its PID, start time, and usage."
         );
         assert_eq!(english.tree_title, "Process tree (read-only)");
+        assert_eq!(
+            portuguese.action_confirm_gentle,
+            "Enviar solicitação para encerrar o processo normalmente?"
+        );
+        assert_eq!(
+            portuguese.action_sending_gentle,
+            "Enviando solicitação para encerrar o processo normalmente…"
+        );
+        assert_eq!(
+            portuguese.action_waiting_gentle,
+            "Aguardando o encerramento do processo por até 5 segundos. O encerramento forçado nunca ocorre automaticamente."
+        );
 
         for (status, expected_portuguese, expected_english) in statuses {
             assert_eq!(ProcessTreeStatus::from_code(status.code()), status);

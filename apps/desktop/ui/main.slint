@@ -96,30 +96,73 @@ component MetricPanel inherits Rectangle {
     }
 }
 
-component NavigationItem inherits Rectangle {
+component NavigationItem inherits FocusScope {
     in property <string> label;
     in property <bool> active;
     in property <bool> compact;
+    in property <int> index;
     callback activated();
+    callback navigation-key-requested(int, int);
     accessible-role: tab;
     accessible-label: label;
     accessible-item-selectable: true;
     accessible-item-selected: active;
     accessible-action-default => { root.activated(); }
+    focus-on-tab-navigation: true;
     height: compact ? 34px : 42px;
-    border-radius: 6px;
-    background: active ? #263a4c : transparent;
 
-    Text {
-        x: 14px;
-        width: parent.width - 28px;
-        height: parent.height;
-        text: label;
-        color: active ? #eaf3fc : #a6b3c2;
-        font-size: 14px;
-        vertical-alignment: center;
+    KeyBinding {
+        keys: @keys(Return);
+        activated => { root.activated(); }
     }
-    TouchArea { clicked => { root.activated(); } }
+    KeyBinding {
+        keys: @keys(Space);
+        activated => { root.activated(); }
+    }
+    KeyBinding {
+        keys: @keys(UpArrow);
+        activated => { root.navigation-key-requested(root.index, -1); }
+    }
+    KeyBinding {
+        keys: @keys(LeftArrow);
+        activated => { root.navigation-key-requested(root.index, -1); }
+    }
+    KeyBinding {
+        keys: @keys(DownArrow);
+        activated => { root.navigation-key-requested(root.index, 1); }
+    }
+    KeyBinding {
+        keys: @keys(RightArrow);
+        activated => { root.navigation-key-requested(root.index, 1); }
+    }
+    KeyBinding {
+        keys: @keys(Home);
+        activated => { root.navigation-key-requested(root.index, -2); }
+    }
+    KeyBinding {
+        keys: @keys(End);
+        activated => { root.navigation-key-requested(root.index, 2); }
+    }
+
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        border-radius: 6px;
+        border-color: root.has-focus ? #7db6ff : transparent;
+        border-width: root.has-focus ? 2px : 0px;
+        background: root.active ? #263a4c : transparent;
+
+        Text {
+            x: 14px;
+            width: parent.width - 28px;
+            height: parent.height;
+            text: root.label;
+            color: root.active ? #eaf3fc : #a6b3c2;
+            font-size: 14px;
+            vertical-alignment: center;
+        }
+        TouchArea { clicked => { root.activated(); } }
+    }
 }
 
 component RangeChoice inherits Rectangle {
@@ -455,8 +498,47 @@ export component MainWindow inherits Window {
     callback byte-unit-system-selected(string);
     callback density-selected(string);
 
+    function select-navigation-page(index: int) {
+        if (index == 0) {
+            root.active-page = MainPage.overview;
+            navigation_overview.focus();
+        } else if (index == 1) {
+            root.active-page = MainPage.processes;
+            navigation_processes.focus();
+        } else if (index == 2) {
+            root.active-page = MainPage.performance;
+            navigation_performance.focus();
+        } else if (index == 3) {
+            root.active-page = MainPage.storage;
+            navigation_storage.focus();
+        } else {
+            root.active-page = MainPage.network;
+            navigation_network.focus();
+        }
+    }
+
+    function move-navigation-focus(index: int, direction: int) {
+        if (direction == -2) {
+            root.select-navigation-page(0);
+        } else if (direction == 2) {
+            root.select-navigation-page(4);
+        } else if (direction < 0) {
+            if (index == 0) {
+                root.select-navigation-page(4);
+            } else {
+                root.select-navigation-page(index - 1);
+            }
+        } else if (index == 4) {
+            root.select-navigation-page(0);
+        } else {
+            root.select-navigation-page(index + 1);
+        }
+    }
+
     keyboard-shortcuts := FocusScope {
         focus-on-tab-navigation: false;
+        width: parent.width;
+        height: parent.height;
 
         KeyBinding {
             keys: @keys(Control + "1");
@@ -478,176 +560,242 @@ export component MainWindow inherits Window {
             keys: @keys(Control + "5");
             activated => { root.active-page = MainPage.network; }
         }
-    }
+        VerticalBox {
+            width: parent.width;
+            height: parent.height;
+            padding: root.density == UiDensity.compact ? 12px : 18px;
+            spacing: root.density == UiDensity.compact ? 9px : 14px;
 
-    VerticalBox {
-        padding: root.density == UiDensity.compact ? 12px : 18px;
-        spacing: root.density == UiDensity.compact ? 9px : 14px;
-
-        HorizontalLayout {
-            height: 54px;
-            spacing: 8px;
-
-            VerticalBox {
-                width: 240px;
-                spacing: 2px;
-                Text { text: root.header-title; accessible-label: root.header-title; color: #edf2f7; font-size: 23px; }
-                Text { text: root.header-tagline; accessible-label: root.header-tagline; color: #8493a5; font-size: 11px; }
-            }
-
-            Rectangle { horizontal-stretch: 1; background: transparent; }
-
-            VerticalBox {
-                width: 200px;
-                spacing: 2px;
-                Text {
-                    text: agent-connected ? root.agent-active-label : root.agent-unavailable-label;
-                    accessible-label: agent-status;
-                    accessible-live-region: polite;
-                    color: agent-connected && agent-startup-configured ? #77d7ad : #f0bd69;
-                    font-size: 12px;
-                    horizontal-alignment: right;
-                    overflow: elide;
-                }
-                Text {
-                    text: sample-age;
-                    accessible-label: sample-age;
-                    color: #8493a5;
-                    font-size: 11px;
-                    horizontal-alignment: right;
-                }
-            }
-
-            if !agent-connected || !agent-startup-configured: RangeChoice {
-                width: 112px;
-                label: agent-connected ? root.setup-startup-label : root.retry-connection-label;
-                active: false;
-                activated => { root.retry-agent(); }
-            }
-            language_pt_br := RangeChoice {
-                width: 44px;
-                label: root.header-language-pt-br-short-label;
-                active: root.language == UiLanguage.pt_br;
-                accessible-label: root.header-language-pt-br-accessible-label;
-                activated => { root.language-selected("pt-BR"); }
-            }
-            language_en_us := RangeChoice {
-                width: 44px;
-                label: root.header-language-en-us-short-label;
-                active: root.language == UiLanguage.en_us;
-                accessible-label: root.header-language-en-us-accessible-label;
-                activated => { root.language-selected("en-US"); }
-            }
-            density_comfortable := RangeChoice {
-                width: 86px;
-                label: root.density-comfortable-label;
-                active: root.density == UiDensity.comfortable;
-                accessible-label: root.density-comfortable-accessible-label;
-                activated => {
-                    root.density = UiDensity.comfortable;
-                    root.density-selected("comfortable");
-                }
-            }
-            density_compact := RangeChoice {
-                width: 74px;
-                label: root.density-compact-label;
-                active: root.density == UiDensity.compact;
-                accessible-label: root.density-compact-accessible-label;
-                activated => {
-                    root.density = UiDensity.compact;
-                    root.density-selected("compact");
-                }
-            }
-        }
-
-        HorizontalLayout {
-            vertical-stretch: 1;
-            spacing: 14px;
-
-            Rectangle {
-                width: 164px;
-                accessible-role: tab-list;
-                accessible-label: root.nav-accessible-label;
-                accessible-orientation: vertical;
-                accessible-item-count: 5;
-                background: #171e27;
-                border-color: #26313d;
-                border-width: 1px;
-                border-radius: 8px;
+            HorizontalLayout {
+                height: 54px;
+                spacing: 8px;
 
                 VerticalBox {
-                    padding: 10px;
-                    spacing: 6px;
-                    Text { text: root.nav-section-label; accessible-label: root.nav-section-label; color: #8292a5; font-size: 10px; }
-                    NavigationItem {
-                        compact: root.density == UiDensity.compact;
-                        label: root.nav-overview-label;
-                        active: root.active-page == MainPage.overview;
-                        activated => { root.active-page = MainPage.overview; }
-                    }
-                    NavigationItem {
-                        compact: root.density == UiDensity.compact;
-                        label: root.nav-processes-label;
-                        active: root.active-page == MainPage.processes;
-                        activated => { root.active-page = MainPage.processes; }
-                    }
-                    NavigationItem {
-                        compact: root.density == UiDensity.compact;
-                        label: root.nav-performance-label;
-                        active: root.active-page == MainPage.performance;
-                        activated => { root.active-page = MainPage.performance; }
-                    }
-                    NavigationItem {
-                        compact: root.density == UiDensity.compact;
-                        label: root.nav-storage-label;
-                        active: root.active-page == MainPage.storage;
-                        activated => { root.active-page = MainPage.storage; }
-                    }
-                    NavigationItem {
-                        compact: root.density == UiDensity.compact;
-                        label: root.nav-network-label;
-                        active: root.active-page == MainPage.network;
-                        activated => { root.active-page = MainPage.network; }
-                    }
-                    Rectangle { vertical-stretch: 1; background: transparent; }
+                    width: 240px;
+                    spacing: 2px;
+                    Text { text: root.header-title; accessible-label: root.header-title; color: #edf2f7; font-size: 23px; }
+                    Text { text: root.header-tagline; accessible-label: root.header-tagline; color: #8493a5; font-size: 11px; }
+                }
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                VerticalBox {
+                    width: 200px;
+                    spacing: 2px;
                     Text {
-                        text: root.nav-collection-continues-label;
-                        accessible-label: root.nav-collection-continues-label;
-                        color: #8292a5;
+                        text: agent-connected ? root.agent-active-label : root.agent-unavailable-label;
+                        accessible-label: agent-status;
+                        accessible-live-region: polite;
+                        color: agent-connected && agent-startup-configured ? #77d7ad : #f0bd69;
+                        font-size: 12px;
+                        horizontal-alignment: right;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: sample-age;
+                        accessible-label: sample-age;
+                        color: #8493a5;
                         font-size: 11px;
-                        wrap: word-wrap;
+                        horizontal-alignment: right;
                     }
-                    Text {
-                        text: root.nav-keyboard-shortcut-label;
-                        accessible-label: root.nav-keyboard-shortcut-accessible-label;
-                        color: #8292a5;
-                        font-size: 10px;
-                        wrap: word-wrap;
+                }
+
+                if !agent-connected || !agent-startup-configured: RangeChoice {
+                    width: 112px;
+                    label: agent-connected ? root.setup-startup-label : root.retry-connection-label;
+                    active: false;
+                    activated => { root.retry-agent(); }
+                }
+                language_pt_br := RangeChoice {
+                    width: 44px;
+                    label: root.header-language-pt-br-short-label;
+                    active: root.language == UiLanguage.pt_br;
+                    accessible-label: root.header-language-pt-br-accessible-label;
+                    activated => { root.language-selected("pt-BR"); }
+                }
+                language_en_us := RangeChoice {
+                    width: 44px;
+                    label: root.header-language-en-us-short-label;
+                    active: root.language == UiLanguage.en_us;
+                    accessible-label: root.header-language-en-us-accessible-label;
+                    activated => { root.language-selected("en-US"); }
+                }
+                density_comfortable := RangeChoice {
+                    width: 86px;
+                    label: root.density-comfortable-label;
+                    active: root.density == UiDensity.comfortable;
+                    accessible-label: root.density-comfortable-accessible-label;
+                    activated => {
+                        root.density = UiDensity.comfortable;
+                        root.density-selected("comfortable");
+                    }
+                }
+                density_compact := RangeChoice {
+                    width: 74px;
+                    label: root.density-compact-label;
+                    active: root.density == UiDensity.compact;
+                    accessible-label: root.density-compact-accessible-label;
+                    activated => {
+                        root.density = UiDensity.compact;
+                        root.density-selected("compact");
                     }
                 }
             }
 
-            Rectangle {
-                horizontal-stretch: 1;
-                accessible-role: main;
-                background: transparent;
+            HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 14px;
 
-                if root.active-page == MainPage.overview: VerticalBox {
-                    spacing: 12px;
+                Rectangle {
+                    width: 164px;
+                    accessible-role: tab-list;
+                    accessible-label: root.nav-accessible-label;
+                    accessible-orientation: vertical;
+                    accessible-item-count: 5;
+                    background: #171e27;
+                    border-color: #26313d;
+                    border-width: 1px;
+                    border-radius: 8px;
 
-                    HorizontalLayout {
-                        height: 30px;
-                        Text { text: root.nav-overview-label; accessible-label: root.nav-overview-label; color: #edf2f7; font-size: 19px; }
-                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: root.overview-live-updates-label; accessible-label: root.overview-live-updates-label; color: #8493a5; font-size: 11px; vertical-alignment: center; }
+                    VerticalBox {
+                        padding: 10px;
+                        spacing: 6px;
+                        Text { text: root.nav-section-label; accessible-label: root.nav-section-label; color: #8292a5; font-size: 10px; }
+                        navigation_overview := NavigationItem {
+                            index: 0;
+                            compact: root.density == UiDensity.compact;
+                            label: root.nav-overview-label;
+                            active: root.active-page == MainPage.overview;
+                            activated => { root.active-page = MainPage.overview; }
+                            navigation-key-requested(index, direction) => {
+                                root.move-navigation-focus(index, direction);
+                            }
+                        }
+                        navigation_processes := NavigationItem {
+                            index: 1;
+                            compact: root.density == UiDensity.compact;
+                            label: root.nav-processes-label;
+                            active: root.active-page == MainPage.processes;
+                            activated => { root.active-page = MainPage.processes; }
+                            navigation-key-requested(index, direction) => {
+                                root.move-navigation-focus(index, direction);
+                            }
+                        }
+                        navigation_performance := NavigationItem {
+                            index: 2;
+                            compact: root.density == UiDensity.compact;
+                            label: root.nav-performance-label;
+                            active: root.active-page == MainPage.performance;
+                            activated => { root.active-page = MainPage.performance; }
+                            navigation-key-requested(index, direction) => {
+                                root.move-navigation-focus(index, direction);
+                            }
+                        }
+                        navigation_storage := NavigationItem {
+                            index: 3;
+                            compact: root.density == UiDensity.compact;
+                            label: root.nav-storage-label;
+                            active: root.active-page == MainPage.storage;
+                            activated => { root.active-page = MainPage.storage; }
+                            navigation-key-requested(index, direction) => {
+                                root.move-navigation-focus(index, direction);
+                            }
+                        }
+                        navigation_network := NavigationItem {
+                            index: 4;
+                            compact: root.density == UiDensity.compact;
+                            label: root.nav-network-label;
+                            active: root.active-page == MainPage.network;
+                            activated => { root.active-page = MainPage.network; }
+                            navigation-key-requested(index, direction) => {
+                                root.move-navigation-focus(index, direction);
+                            }
+                        }
+                        Rectangle { vertical-stretch: 1; background: transparent; }
+                        Text {
+                            text: root.nav-collection-continues-label;
+                            accessible-label: root.nav-collection-continues-label;
+                            color: #8292a5;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                        Text {
+                            text: root.nav-keyboard-shortcut-label;
+                            accessible-label: root.nav-keyboard-shortcut-accessible-label;
+                            color: #8292a5;
+                            font-size: 10px;
+                            wrap: word-wrap;
+                        }
                     }
+                }
 
-                    if root.width < 1000px: VerticalBox {
-                        spacing: 8px;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    accessible-role: main;
+                    background: transparent;
+
+                    if root.active-page == MainPage.overview: VerticalBox {
+                        spacing: 12px;
 
                         HorizontalLayout {
-                            height: 98px;
+                            height: 30px;
+                            Text { text: root.nav-overview-label; accessible-label: root.nav-overview-label; color: #edf2f7; font-size: 19px; }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                            Text { text: root.overview-live-updates-label; accessible-label: root.overview-live-updates-label; color: #8493a5; font-size: 11px; vertical-alignment: center; }
+                        }
+
+                        if root.width < 1000px: VerticalBox {
                             spacing: 8px;
+
+                            HorizontalLayout {
+                                height: 98px;
+                                spacing: 8px;
+                                MetricPanel {
+                                    horizontal-stretch: 1;
+                                    title: root.overview-total-cpu-label;
+                                    value: root.cpu-value;
+                                    detail: root.cpu-status;
+                                    accent: #7db6ff;
+                                }
+                                MetricPanel {
+                                    horizontal-stretch: 1;
+                                    title: root.overview-memory-label;
+                                    value: root.memory-value;
+                                    detail: root.memory-status;
+                                    accent: #4fc59a;
+                                }
+                                MetricPanel {
+                                    horizontal-stretch: 1;
+                                    title: root.overview-swap-label;
+                                    value: root.swap-value;
+                                    detail: root.swap-status;
+                                    accent: #b58cff;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                height: 98px;
+                                spacing: 8px;
+                                MetricPanel {
+                                    horizontal-stretch: 1;
+                                    title: root.overview-processes-label;
+                                    value: root.process-count;
+                                    detail: root.process-count-detail;
+                                    accent: #e8b75b;
+                                }
+                                MetricPanel {
+                                    horizontal-stretch: 1;
+                                    title: root.overview-battery-label;
+                                    value: root.battery-value;
+                                    detail: root.battery-status;
+                                    accent: #e8b75b;
+                                }
+                            }
+                        }
+
+                        if root.width >= 1000px: HorizontalLayout {
+                            height: 98px;
+                            spacing: 10px;
                             MetricPanel {
                                 horizontal-stretch: 1;
                                 title: root.overview-total-cpu-label;
@@ -669,11 +817,6 @@ export component MainWindow inherits Window {
                                 detail: root.swap-status;
                                 accent: #b58cff;
                             }
-                        }
-
-                        HorizontalLayout {
-                            height: 98px;
-                            spacing: 8px;
                             MetricPanel {
                                 horizontal-stretch: 1;
                                 title: root.overview-processes-label;
@@ -689,673 +832,633 @@ export component MainWindow inherits Window {
                                 accent: #e8b75b;
                             }
                         }
+
+                        HorizontalLayout {
+                            vertical-stretch: 1;
+                            spacing: 12px;
+                            cpu_chart := ChartPanel {
+                                horizontal-stretch: 1;
+                                title: root.overview-cpu-usage-label;
+                                accessible-summary: root.cpu-history-accessible-summary;
+                                points: root.cpu-history;
+                                accent: #70b5ff;
+                                range-start: root.cpu-history-start-label;
+                                now-label: root.chart-now-label;
+                                waiting-label: root.chart-waiting-label;
+                            }
+                            memory_chart := ChartPanel {
+                                horizontal-stretch: 1;
+                                title: root.overview-memory-usage-label;
+                                accessible-summary: root.memory-history-accessible-summary;
+                                points: root.memory-history;
+                                accent: #50c99a;
+                                range-start: root.memory-history-start-label;
+                                now-label: root.chart-now-label;
+                                waiting-label: root.chart-waiting-label;
+                            }
+                        }
                     }
 
-                    if root.width >= 1000px: HorizontalLayout {
-                        height: 98px;
+                    if root.active-page == MainPage.processes: VerticalBox {
+                        spacing: root.density == UiDensity.compact ? 7px : 12px;
+
+                        HorizontalLayout {
+                            height: 32px;
+                            Text { text: root.nav-processes-label; accessible-label: root.nav-processes-label; color: #edf2f7; font-size: 19px; }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                                    Text { text: root.process-count-description; accessible-label: root.process-count-description; color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                        }
+
+                        Rectangle {
+                            background: #19212b;
+                            border-color: #2c3744;
+                            border-width: 1px;
+                            border-radius: 8px;
+                            vertical-stretch: 1;
+
+                            VerticalBox {
+                                padding: root.density == UiDensity.compact ? 8px : 12px;
+                                spacing: root.density == UiDensity.compact ? 5px : 8px;
+
+                                HorizontalLayout {
+                                    height: root.density == UiDensity.compact ? 30px : 38px;
+                                    Text { text: root.process-list-title-label; accessible-label: root.process-list-title-label; color: #e4ebf3; font-size: 14px; vertical-alignment: center; }
+                                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                                    LineEdit {
+                                        width: 238px;
+                                        placeholder-text: root.process-filter-placeholder;
+                                        accessible-label: root.process-filter-accessible-label;
+                                        input-type: search;
+                                        edited(text) => { root.filter-edited(text); }
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    height: root.density == UiDensity.compact ? 24px : 28px;
+                                    spacing: 8px;
+                                    SortHeader {
+                                        horizontal-stretch: 1;
+                                        label: root.process-column-label;
+                                        key: "name";
+                                        active-key: root.sort-key;
+                                        descending: root.sort-descending;
+                                        unsorted-description: root.process-sort-unsorted-description;
+                                        ascending-description: root.process-sort-ascending-description;
+                                        descending-description: root.process-sort-descending-description;
+                                        requested(key) => { root.sort-requested(key); }
+                                    }
+                                    SortHeader {
+                                        width: 58px;
+                                        label: root.process-pid-label;
+                                        key: "pid";
+                                        active-key: root.sort-key;
+                                        descending: root.sort-descending;
+                                        unsorted-description: root.process-sort-unsorted-description;
+                                        ascending-description: root.process-sort-ascending-description;
+                                        descending-description: root.process-sort-descending-description;
+                                        requested(key) => { root.sort-requested(key); }
+                                    }
+                                    SortHeader {
+                                        width: 58px;
+                                        label: root.process-parent-pid-label;
+                                        key: "parent";
+                                        active-key: root.sort-key;
+                                        descending: root.sort-descending;
+                                        unsorted-description: root.process-sort-unsorted-description;
+                                        ascending-description: root.process-sort-ascending-description;
+                                        descending-description: root.process-sort-descending-description;
+                                        requested(key) => { root.sort-requested(key); }
+                                    }
+                                    SortHeader {
+                                        width: 66px;
+                                        label: root.process-cpu-label + " %";
+                                        key: "cpu";
+                                        active-key: root.sort-key;
+                                        descending: root.sort-descending;
+                                        unsorted-description: root.process-sort-unsorted-description;
+                                        ascending-description: root.process-sort-ascending-description;
+                                        descending-description: root.process-sort-descending-description;
+                                        requested(key) => { root.sort-requested(key); }
+                                    }
+                                    SortHeader {
+                                        width: 136px;
+                                        label: root.process-memory-label + " " + (root.byte-unit-system == UiByteUnitSystem.si ? "MB" : "MiB") + " / %";
+                                        key: "memory";
+                                        active-key: root.sort-key;
+                                        descending: root.sort-descending;
+                                        unsorted-description: root.process-sort-unsorted-description;
+                                        ascending-description: root.process-sort-ascending-description;
+                                        descending-description: root.process-sort-descending-description;
+                                        requested(key) => { root.sort-requested(key); }
+                                    }
+                                }
+
+                                Rectangle {
+                                    height: root.density == UiDensity.compact ? 44px : 54px;
+                                    background: #121922;
+                                    border-radius: 5px;
+                                    if root.has-selected-process: VerticalBox {
+                                        x: 10px;
+                                        y: 6px;
+                                        width: parent.width - 20px;
+                                        height: parent.height - 12px;
+                                        spacing: 3px;
+                                        Text {
+                                            text: root.selected-process-name + " · " + root.process-pid-label + " " + root.selected-process-pid + " · " + root.process-parent-pid-label + " " + root.selected-process-parent-pid;
+                                            accessible-label: root.selected-process-name + " · " + root.process-pid-label + " " + root.selected-process-pid + " · " + root.process-parent-pid-label + " " + root.selected-process-parent-pid;
+                                            color: #e4ebf3;
+                                            font-size: 12px;
+                                            overflow: elide;
+                                        }
+                                        Text {
+                                            text: root.process-started-label + " " + root.selected-process-started + " · " + root.process-cpu-label + " " + root.selected-process-cpu + " · " + root.process-memory-label + " " + root.selected-process-memory + " " + root.selected-process-memory-unit + " (" + root.selected-process-memory-percent + ")";
+                                            accessible-label: root.process-started-label + " " + root.selected-process-started + " · " + root.process-cpu-label + " " + root.selected-process-cpu + " · " + root.process-memory-label + " " + root.selected-process-memory + " " + root.selected-process-memory-unit + " (" + root.selected-process-memory-percent + ")";
+                                            color: #9eacbd;
+                                            font-size: 11px;
+                                            overflow: elide;
+                                        }
+                                    }
+                                    if !root.has-selected-process: Text {
+                                        x: 10px;
+                                        width: parent.width - 20px;
+                                        height: parent.height;
+                                        text: root.process-select-prompt-label;
+                                        accessible-label: root.process-select-prompt-label;
+                                        color: #8493a5;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                if root.has-selected-process && root.process-control-supported: Rectangle {
+                                    height: root.process-action-state == ProcessActionUiState.idle ? 42px : 68px;
+                                    background: #19212b;
+                                    border-color: #2c3744;
+                                    border-width: 1px;
+                                    border-radius: 6px;
+                                    VerticalBox {
+                                        padding: 6px;
+                                        spacing: 4px;
+                                        if root.process-action-status != "": Text {
+                                            text: root.process-action-status;
+                                            accessible-label: root.process-action-status;
+                                            color: #d6dee8;
+                                            font-size: 11px;
+                                            overflow: elide;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                                            if root.process-action-state == ProcessActionUiState.idle: ProcessActionButton {
+                                                label: root.process-action-request-label;
+                                                activated => { root.process-action-command("request-gentle"); }
+                                            }
+                                            if root.process-action-state == ProcessActionUiState.confirm_gentle: ProcessActionButton {
+                                                label: root.process-action-confirm-label;
+                                                activated => { root.process-action-command("confirm-gentle"); }
+                                            }
+                                            if root.process-action-state == ProcessActionUiState.confirm_gentle: ProcessActionButton {
+                                                label: root.process-action-cancel-label;
+                                                destructive: true;
+                                                activated => { root.process-action-command("cancel"); }
+                                            }
+                                            if root.process-action-state == ProcessActionUiState.waiting_gentle: ProcessActionButton {
+                                                label: root.process-action-stop-escalation-label;
+                                                destructive: true;
+                                                activated => { root.process-action-command("cancel"); }
+                                            }
+                                            if root.process-action-state == ProcessActionUiState.confirm_force: ProcessActionButton {
+                                                label: root.process-action-force-label;
+                                                destructive: true;
+                                                activated => { root.process-action-command("confirm-force"); }
+                                            }
+                                            if root.process-action-state == ProcessActionUiState.confirm_force: ProcessActionButton {
+                                                label: root.process-action-cancel-label;
+                                                activated => { root.process-action-command("cancel"); }
+                                            }
+                                            if root.process-action-state == ProcessActionUiState.finished: ProcessActionButton {
+                                                label: root.process-action-dismiss-label;
+                                                activated => { root.process-action-command("dismiss"); }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if root.has-selected-process: Rectangle {
+                                    height: root.density == UiDensity.compact ? 96px : 124px;
+                                    background: #19212b;
+                                    border-color: #2c3744;
+                                    border-width: 1px;
+                                    border-radius: 6px;
+                                    VerticalBox {
+                                        padding: 8px;
+                                        spacing: 4px;
+                                        Text {
+                                            text: root.process-tree-title-label;
+                                            accessible-label: root.process-tree-title-label;
+                                            color: #e4ebf3;
+                                            font-size: 12px;
+                                        }
+                                        if root.process-tree.length == 0: Text {
+                                            text: root.process-tree-status;
+                                            accessible-label: root.process-tree-status;
+                                            color: #8493a5;
+                                            font-size: 11px;
+                                        }
+                                        if root.process-tree.length > 0: ListView {
+                                            vertical-stretch: 1;
+                                            for item in root.process-tree: Text {
+                                                x: item.depth * 14px;
+                                                height: root.density == UiDensity.compact ? 16px : 20px;
+                                                text: item.label;
+                                                color: #a6b3c2;
+                                                font-size: 11px;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if root.processes.length == 0: Rectangle {
+                                    vertical-stretch: 1;
+                                    background: transparent;
+                                    Text {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        text: root.agent-connected
+                                            ? root.process-empty-filtered-label
+                                            : root.process-waiting-connection-label;
+                                        accessible-label: root.agent-connected
+                                            ? root.process-empty-filtered-label
+                                            : root.process-waiting-connection-label;
+                                        color: #8493a5;
+                                        font-size: 13px;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                if root.processes.length > 0: ListView {
+                                    vertical-stretch: 1;
+                                    for process in root.processes: Rectangle {
+                                        height: root.density == UiDensity.compact ? 25px : 32px;
+                                        accessible-role: list-item;
+                                        accessible-label: process.name + ", " + root.process-pid-label + " " + process.pid + ", " + root.process-cpu-label + " " + process.cpu + ", " + root.process-memory-accessible-label + " " + process.memory + " " + process.memory-unit;
+                                        accessible-item-selectable: true;
+                                        accessible-item-selected: process.key == root.selected-process-key;
+                                        accessible-action-default => { process-row-hit-target.clicked(); }
+                                        background: process.key == root.selected-process-key ? #263a4c : transparent;
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            Rectangle {
+                                                background: transparent;
+                                                horizontal-stretch: 1;
+                                                Text {
+                                                    x: 0px;
+                                                    width: parent.width;
+                                                    height: parent.height;
+                                                    text: process.name;
+                                                    color: #e5ebf2;
+                                                    font-size: 12px;
+                                                    vertical-alignment: center;
+                                                    overflow: elide;
+                                                }
+                                            }
+                                            Text { text: process.pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                            Text { text: process.parent-pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                            Text { text: process.cpu; color: #a6b3c2; width: 66px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                            Text { text: process.memory + " / " + process.memory-percent; color: #a6b3c2; width: 136px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                                        }
+                                        process-row-hit-target := TouchArea {
+                                            clicked => {
+                                                root.selected-process-key = process.key;
+                                                root.has-selected-process = true;
+                                                root.selected-process-name = process.name;
+                                                root.selected-process-pid = process.pid;
+                                                root.selected-process-parent-pid = process.parent-pid;
+                                                root.selected-process-started = process.started;
+                                                root.selected-process-cpu = process.cpu;
+                                                root.selected-process-memory = process.memory;
+                                                root.selected-process-memory-unit = process.memory-unit;
+                                                root.selected-process-memory-percent = process.memory-percent;
+                                                root.process-selected(process.key);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if root.active-page == MainPage.performance: VerticalBox {
                         spacing: 10px;
-                        MetricPanel {
-                            horizontal-stretch: 1;
-                            title: root.overview-total-cpu-label;
-                            value: root.cpu-value;
-                            detail: root.cpu-status;
-                            accent: #7db6ff;
-                        }
-                        MetricPanel {
-                            horizontal-stretch: 1;
-                            title: root.overview-memory-label;
-                            value: root.memory-value;
-                            detail: root.memory-status;
-                            accent: #4fc59a;
-                        }
-                        MetricPanel {
-                            horizontal-stretch: 1;
-                            title: root.overview-swap-label;
-                            value: root.swap-value;
-                            detail: root.swap-status;
-                            accent: #b58cff;
-                        }
-                        MetricPanel {
-                            horizontal-stretch: 1;
-                            title: root.overview-processes-label;
-                            value: root.process-count;
-                            detail: root.process-count-detail;
-                            accent: #e8b75b;
-                        }
-                        MetricPanel {
-                            horizontal-stretch: 1;
-                            title: root.overview-battery-label;
-                            value: root.battery-value;
-                            detail: root.battery-status;
-                            accent: #e8b75b;
-                        }
-                    }
 
-                    HorizontalLayout {
-                        vertical-stretch: 1;
-                        spacing: 12px;
-                        cpu_chart := ChartPanel {
-                            horizontal-stretch: 1;
-                            title: root.overview-cpu-usage-label;
-                            accessible-summary: root.cpu-history-accessible-summary;
+                        HorizontalLayout {
+                            height: 34px;
+                            Text { text: root.nav-performance-label; accessible-label: root.nav-performance-label; color: #edf2f7; font-size: 19px; }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                            RangeChoice {
+                                label: root.performance-one-minute-label;
+                                active: root.history-range == HistoryRange.one-minute;
+                                activated => {
+                                    root.history-range = HistoryRange.one-minute;
+                                    root.history-range-selected("one-minute");
+                                }
+                            }
+                            RangeChoice {
+                                label: root.performance-five-minutes-label;
+                                active: root.history-range == HistoryRange.five-minutes;
+                                activated => {
+                                    root.history-range = HistoryRange.five-minutes;
+                                    root.history-range-selected("five-minutes");
+                                }
+                            }
+                        }
+
+                        ChartPanel {
+                            vertical-stretch: 1;
+                            title: root.performance-cpu-total-label;
                             points: root.cpu-history;
                             accent: #70b5ff;
                             range-start: root.cpu-history-start-label;
                             now-label: root.chart-now-label;
                             waiting-label: root.chart-waiting-label;
                         }
-                        memory_chart := ChartPanel {
-                            horizontal-stretch: 1;
-                            title: root.overview-memory-usage-label;
-                            accessible-summary: root.memory-history-accessible-summary;
+
+                        ChartPanel {
+                            vertical-stretch: 1;
+                            title: root.performance-memory-used-label;
                             points: root.memory-history;
                             accent: #50c99a;
                             range-start: root.memory-history-start-label;
                             now-label: root.chart-now-label;
                             waiting-label: root.chart-waiting-label;
                         }
-                    }
-                }
 
-                if root.active-page == MainPage.processes: VerticalBox {
-                    spacing: root.density == UiDensity.compact ? 7px : 12px;
-
-                    HorizontalLayout {
-                        height: 32px;
-                        Text { text: root.nav-processes-label; accessible-label: root.nav-processes-label; color: #edf2f7; font-size: 19px; }
-                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                                Text { text: root.process-count-description; accessible-label: root.process-count-description; color: #8493a5; font-size: 12px; vertical-alignment: center; }
-                    }
-
-                    Rectangle {
-                        background: #19212b;
-                        border-color: #2c3744;
-                        border-width: 1px;
-                        border-radius: 8px;
-                        vertical-stretch: 1;
-
-                        VerticalBox {
-                            padding: root.density == UiDensity.compact ? 8px : 12px;
-                            spacing: root.density == UiDensity.compact ? 5px : 8px;
-
-                            HorizontalLayout {
-                                height: root.density == UiDensity.compact ? 30px : 38px;
-                                Text { text: root.process-list-title-label; accessible-label: root.process-list-title-label; color: #e4ebf3; font-size: 14px; vertical-alignment: center; }
-                                Rectangle { horizontal-stretch: 1; background: transparent; }
-                                LineEdit {
-                                    width: 238px;
-                                    placeholder-text: root.process-filter-placeholder;
-                                    accessible-label: root.process-filter-accessible-label;
-                                    input-type: search;
-                                    edited(text) => { root.filter-edited(text); }
-                                }
-                            }
-
-                            HorizontalLayout {
-                                height: root.density == UiDensity.compact ? 24px : 28px;
-                                spacing: 8px;
-                                SortHeader {
-                                    horizontal-stretch: 1;
-                                    label: root.process-column-label;
-                                    key: "name";
-                                    active-key: root.sort-key;
-                                    descending: root.sort-descending;
-                                    unsorted-description: root.process-sort-unsorted-description;
-                                    ascending-description: root.process-sort-ascending-description;
-                                    descending-description: root.process-sort-descending-description;
-                                    requested(key) => { root.sort-requested(key); }
-                                }
-                                SortHeader {
-                                    width: 58px;
-                                    label: root.process-pid-label;
-                                    key: "pid";
-                                    active-key: root.sort-key;
-                                    descending: root.sort-descending;
-                                    unsorted-description: root.process-sort-unsorted-description;
-                                    ascending-description: root.process-sort-ascending-description;
-                                    descending-description: root.process-sort-descending-description;
-                                    requested(key) => { root.sort-requested(key); }
-                                }
-                                SortHeader {
-                                    width: 58px;
-                                    label: root.process-parent-pid-label;
-                                    key: "parent";
-                                    active-key: root.sort-key;
-                                    descending: root.sort-descending;
-                                    unsorted-description: root.process-sort-unsorted-description;
-                                    ascending-description: root.process-sort-ascending-description;
-                                    descending-description: root.process-sort-descending-description;
-                                    requested(key) => { root.sort-requested(key); }
-                                }
-                                SortHeader {
-                                    width: 66px;
-                                    label: root.process-cpu-label + " %";
-                                    key: "cpu";
-                                    active-key: root.sort-key;
-                                    descending: root.sort-descending;
-                                    unsorted-description: root.process-sort-unsorted-description;
-                                    ascending-description: root.process-sort-ascending-description;
-                                    descending-description: root.process-sort-descending-description;
-                                    requested(key) => { root.sort-requested(key); }
-                                }
-                                SortHeader {
-                                    width: 136px;
-                                    label: root.process-memory-label + " " + (root.byte-unit-system == UiByteUnitSystem.si ? "MB" : "MiB") + " / %";
-                                    key: "memory";
-                                    active-key: root.sort-key;
-                                    descending: root.sort-descending;
-                                    unsorted-description: root.process-sort-unsorted-description;
-                                    ascending-description: root.process-sort-ascending-description;
-                                    descending-description: root.process-sort-descending-description;
-                                    requested(key) => { root.sort-requested(key); }
-                                }
-                            }
-
-                            Rectangle {
-                                height: root.density == UiDensity.compact ? 44px : 54px;
-                                background: #121922;
-                                border-radius: 5px;
-                                if root.has-selected-process: VerticalBox {
-                                    x: 10px;
-                                    y: 6px;
-                                    width: parent.width - 20px;
-                                    height: parent.height - 12px;
-                                    spacing: 3px;
-                                    Text {
-                                        text: root.selected-process-name + " · " + root.process-pid-label + " " + root.selected-process-pid + " · " + root.process-parent-pid-label + " " + root.selected-process-parent-pid;
-                                        accessible-label: root.selected-process-name + " · " + root.process-pid-label + " " + root.selected-process-pid + " · " + root.process-parent-pid-label + " " + root.selected-process-parent-pid;
-                                        color: #e4ebf3;
-                                        font-size: 12px;
-                                        overflow: elide;
-                                    }
-                                    Text {
-                                        text: root.process-started-label + " " + root.selected-process-started + " · " + root.process-cpu-label + " " + root.selected-process-cpu + " · " + root.process-memory-label + " " + root.selected-process-memory + " " + root.selected-process-memory-unit + " (" + root.selected-process-memory-percent + ")";
-                                        accessible-label: root.process-started-label + " " + root.selected-process-started + " · " + root.process-cpu-label + " " + root.selected-process-cpu + " · " + root.process-memory-label + " " + root.selected-process-memory + " " + root.selected-process-memory-unit + " (" + root.selected-process-memory-percent + ")";
-                                        color: #9eacbd;
-                                        font-size: 11px;
-                                        overflow: elide;
-                                    }
-                                }
-                                if !root.has-selected-process: Text {
-                                    x: 10px;
-                                    width: parent.width - 20px;
-                                    height: parent.height;
-                                    text: root.process-select-prompt-label;
-                                    accessible-label: root.process-select-prompt-label;
+                        Rectangle {
+                            height: 128px;
+                            background: #19212b;
+                            border-color: #2c3744;
+                            border-width: 1px;
+                            border-radius: 8px;
+                            VerticalBox {
+                                padding: 12px;
+                                spacing: 6px;
+                                Text { text: root.performance-cpu-per-core-label; accessible-label: root.performance-cpu-per-core-label; color: #e4ebf3; font-size: 13px; }
+                                if root.cpu-cores.length == 0: Text {
+                                    text: root.performance-cpu-unavailable-label;
+                                    accessible-label: root.performance-cpu-unavailable-label;
                                     color: #8493a5;
+                                    font-size: 12px;
+                                }
+                                if root.cpu-cores.length > 0: ListView {
+                                    vertical-stretch: 1;
+                                    for core in root.cpu-cores: HorizontalLayout {
+                                        height: 22px;
+                                        spacing: 8px;
+                                        Text { text: core.name; accessible-label: core.name; color: #a6b3c2; width: 62px; font-size: 11px; vertical-alignment: center; }
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                            height: 7px;
+                                            background: #10171f;
+                                            border-radius: 4px;
+                                            Rectangle {
+                                                width: parent.width * core.fraction;
+                                                height: parent.height;
+                                                background: #70b5ff;
+                                                border-radius: 4px;
+                                            }
+                                        }
+                                        Text { text: core.usage; color: #a6b3c2; width: 54px; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 104px;
+                            background: #19212b;
+                            border-color: #2c3744;
+                            border-width: 1px;
+                            border-radius: 8px;
+                            VerticalBox {
+                                padding: 12px;
+                                spacing: 6px;
+                                Text { text: root.performance-gpu-vram-label; accessible-label: root.performance-gpu-vram-label; color: #e4ebf3; font-size: 13px; }
+                                if root.gpus.length == 0: Text {
+                                    text: root.gpu-status;
+                                    accessible-label: root.gpu-status;
+                                    color: #8493a5;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                if root.gpus.length > 0 && root.gpu-status != "": Text {
+                                    text: root.gpu-status;
+                                    accessible-label: root.gpu-status;
+                                    color: #f0bd69;
                                     font-size: 11px;
                                     vertical-alignment: center;
                                 }
-                            }
-
-                            if root.has-selected-process && root.process-control-supported: Rectangle {
-                                height: root.process-action-state == ProcessActionUiState.idle ? 42px : 68px;
-                                background: #19212b;
-                                border-color: #2c3744;
-                                border-width: 1px;
-                                border-radius: 6px;
-                                VerticalBox {
-                                    padding: 6px;
-                                    spacing: 4px;
-                                    if root.process-action-status != "": Text {
-                                        text: root.process-action-status;
-                                        accessible-label: root.process-action-status;
-                                        color: #d6dee8;
-                                        font-size: 11px;
-                                        overflow: elide;
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                                        if root.process-action-state == ProcessActionUiState.idle: ProcessActionButton {
-                                            label: root.process-action-request-label;
-                                            activated => { root.process-action-command("request-gentle"); }
-                                        }
-                                        if root.process-action-state == ProcessActionUiState.confirm_gentle: ProcessActionButton {
-                                            label: root.process-action-confirm-label;
-                                            activated => { root.process-action-command("confirm-gentle"); }
-                                        }
-                                        if root.process-action-state == ProcessActionUiState.confirm_gentle: ProcessActionButton {
-                                            label: root.process-action-cancel-label;
-                                            destructive: true;
-                                            activated => { root.process-action-command("cancel"); }
-                                        }
-                                        if root.process-action-state == ProcessActionUiState.waiting_gentle: ProcessActionButton {
-                                            label: root.process-action-stop-escalation-label;
-                                            destructive: true;
-                                            activated => { root.process-action-command("cancel"); }
-                                        }
-                                        if root.process-action-state == ProcessActionUiState.confirm_force: ProcessActionButton {
-                                            label: root.process-action-force-label;
-                                            destructive: true;
-                                            activated => { root.process-action-command("confirm-force"); }
-                                        }
-                                        if root.process-action-state == ProcessActionUiState.confirm_force: ProcessActionButton {
-                                            label: root.process-action-cancel-label;
-                                            activated => { root.process-action-command("cancel"); }
-                                        }
-                                        if root.process-action-state == ProcessActionUiState.finished: ProcessActionButton {
-                                            label: root.process-action-dismiss-label;
-                                            activated => { root.process-action-command("dismiss"); }
-                                        }
+                                if root.gpus.length > 0: ListView {
+                                    vertical-stretch: 1;
+                                    for gpu in root.gpus: HorizontalLayout {
+                                        height: 22px;
+                                        spacing: 8px;
+                                        Text { text: gpu.name; color: #e5ebf2; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                                        Text { text: gpu.utilization; color: #a6b3c2; font-size: 11px; width: 48px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: gpu.memory; color: #a6b3c2; font-size: 11px; width: 120px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: gpu.temperature; color: #a6b3c2; font-size: 11px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: gpu.clocks; color: #a6b3c2; font-size: 11px; width: 100px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: gpu.power; color: #a6b3c2; font-size: 11px; width: 52px; horizontal-alignment: right; vertical-alignment: center; }
                                     }
                                 }
                             }
+                        }
+                    }
 
-                            if root.has-selected-process: Rectangle {
-                                height: root.density == UiDensity.compact ? 96px : 124px;
-                                background: #19212b;
-                                border-color: #2c3744;
-                                border-width: 1px;
-                                border-radius: 6px;
-                                VerticalBox {
-                                    padding: 8px;
-                                    spacing: 4px;
-                                    Text {
-                                        text: root.process-tree-title-label;
-                                        accessible-label: root.process-tree-title-label;
-                                        color: #e4ebf3;
-                                        font-size: 12px;
-                                    }
-                                    if root.process-tree.length == 0: Text {
-                                        text: root.process-tree-status;
-                                        accessible-label: root.process-tree-status;
-                                        color: #8493a5;
-                                        font-size: 11px;
-                                    }
-                                    if root.process-tree.length > 0: ListView {
-                                        vertical-stretch: 1;
-                                        for item in root.process-tree: Text {
-                                            x: item.depth * 14px;
-                                            height: root.density == UiDensity.compact ? 16px : 20px;
-                                            text: item.label;
-                                            color: #a6b3c2;
-                                            font-size: 11px;
-                                        }
-                                    }
+                    if root.active-page == MainPage.storage: VerticalBox {
+                        spacing: 12px;
+
+                        HorizontalLayout {
+                            height: 32px;
+                            spacing: 8px;
+                            Text { text: root.nav-storage-label; accessible-label: root.nav-storage-label; color: #edf2f7; font-size: 19px; }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                            Text { text: root.volume-count; accessible-label: root.volume-count; color: #8493a5; font-size: 12px; vertical-alignment: center; }
+                            Text { text: root.storage-units-label; accessible-label: root.storage-units-label; color: #8493a5; font-size: 11px; vertical-alignment: center; }
+                            byte_units_si := RangeChoice {
+                                width: 44px;
+                                label: "SI";
+                                active: root.byte-unit-system == UiByteUnitSystem.si;
+                                accessible-label: root.storage-si-accessible-label;
+                                activated => {
+                                    root.byte-unit-system = UiByteUnitSystem.si;
+                                    root.byte-unit-system-selected("si");
                                 }
                             }
+                            byte_units_iec := RangeChoice {
+                                width: 44px;
+                                label: "IEC";
+                                active: root.byte-unit-system == UiByteUnitSystem.iec;
+                                accessible-label: root.storage-iec-accessible-label;
+                                activated => {
+                                    root.byte-unit-system = UiByteUnitSystem.iec;
+                                    root.byte-unit-system-selected("iec");
+                                }
+                            }
+                        }
 
-                            if root.processes.length == 0: Rectangle {
-                                vertical-stretch: 1;
-                                background: transparent;
-                                Text {
-                                    width: parent.width;
-                                    height: parent.height;
-                                    text: root.agent-connected
-                                        ? root.process-empty-filtered-label
-                                        : root.process-waiting-connection-label;
-                                    accessible-label: root.agent-connected
-                                        ? root.process-empty-filtered-label
-                                        : root.process-waiting-connection-label;
+                        Rectangle {
+                            vertical-stretch: 1;
+                            background: #19212b;
+                            border-color: #2c3744;
+                            border-width: 1px;
+                            border-radius: 8px;
+
+                            VerticalBox {
+                                padding: 12px;
+                                spacing: 8px;
+
+                                HorizontalLayout {
+                                    height: 28px;
+                                    spacing: 8px;
+                                    Text { text: root.storage-mount-point-label; accessible-label: root.storage-mount-point-label; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                    Text { text: root.storage-read-label; accessible-label: root.storage-read-label; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.storage-write-label; accessible-label: root.storage-write-label; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.storage-file-system-label; accessible-label: root.storage-file-system-label; color: #9eacbd; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.storage-available-label; accessible-label: root.storage-available-label; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.storage-total-label; accessible-label: root.storage-total-label; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+
+                                if root.volumes.length == 0: Text {
+                                    vertical-stretch: 1;
+                                    text: root.volume-status;
+                                    accessible-label: root.volume-status;
                                     color: #8493a5;
                                     font-size: 13px;
                                     horizontal-alignment: center;
                                     vertical-alignment: center;
                                 }
-                            }
 
-                            if root.processes.length > 0: ListView {
-                                vertical-stretch: 1;
-                                for process in root.processes: Rectangle {
-                                    height: root.density == UiDensity.compact ? 25px : 32px;
-                                    accessible-role: list-item;
-                                    accessible-label: process.name + ", " + root.process-pid-label + " " + process.pid + ", " + root.process-cpu-label + " " + process.cpu + ", " + root.process-memory-accessible-label + " " + process.memory + " " + process.memory-unit;
-                                    accessible-item-selectable: true;
-                                    accessible-item-selected: process.key == root.selected-process-key;
-                                    accessible-action-default => { process-row-hit-target.clicked(); }
-                                    background: process.key == root.selected-process-key ? #263a4c : transparent;
-                                    HorizontalLayout {
+                                if root.volumes.length > 0: ListView {
+                                    vertical-stretch: 1;
+                                    for volume in root.volumes: HorizontalLayout {
+                                        height: 32px;
                                         spacing: 8px;
-                                        Rectangle {
-                                            background: transparent;
-                                            horizontal-stretch: 1;
-                                            Text {
-                                                x: 0px;
-                                                width: parent.width;
-                                                height: parent.height;
-                                                text: process.name;
-                                                color: #e5ebf2;
-                                                font-size: 12px;
-                                                vertical-alignment: center;
-                                                overflow: elide;
-                                            }
-                                        }
-                                        Text { text: process.pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
-                                        Text { text: process.parent-pid; color: #a6b3c2; width: 58px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
-                                        Text { text: process.cpu; color: #a6b3c2; width: 66px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
-                                        Text { text: process.memory + " / " + process.memory-percent; color: #a6b3c2; width: 136px; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
-                                    }
-                                    process-row-hit-target := TouchArea {
-                                        clicked => {
-                                            root.selected-process-key = process.key;
-                                            root.has-selected-process = true;
-                                            root.selected-process-name = process.name;
-                                            root.selected-process-pid = process.pid;
-                                            root.selected-process-parent-pid = process.parent-pid;
-                                            root.selected-process-started = process.started;
-                                            root.selected-process-cpu = process.cpu;
-                                            root.selected-process-memory = process.memory;
-                                            root.selected-process-memory-unit = process.memory-unit;
-                                            root.selected-process-memory-percent = process.memory-percent;
-                                            root.process-selected(process.key);
-                                        }
+                                        Text { text: volume.mount-point; color: #e5ebf2; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                                        Text { text: volume.read-rate; color: #a6b3c2; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: volume.write-rate; color: #a6b3c2; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: volume.file-system; color: #a6b3c2; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+                                        Text { text: volume.available; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: volume.total; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
                                     }
                                 }
                             }
                         }
-                    }
-                }
 
-                if root.active-page == MainPage.performance: VerticalBox {
-                    spacing: 10px;
+                        Rectangle {
+                            vertical-stretch: 1;
+                            background: #19212b;
+                            border-color: #2c3744;
+                            border-width: 1px;
+                            border-radius: 8px;
 
-                    HorizontalLayout {
-                        height: 34px;
-                        Text { text: root.nav-performance-label; accessible-label: root.nav-performance-label; color: #edf2f7; font-size: 19px; }
-                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                        RangeChoice {
-                            label: root.performance-one-minute-label;
-                            active: root.history-range == HistoryRange.one-minute;
-                            activated => {
-                                root.history-range = HistoryRange.one-minute;
-                                root.history-range-selected("one-minute");
-                            }
-                        }
-                        RangeChoice {
-                            label: root.performance-five-minutes-label;
-                            active: root.history-range == HistoryRange.five-minutes;
-                            activated => {
-                                root.history-range = HistoryRange.five-minutes;
-                                root.history-range-selected("five-minutes");
-                            }
-                        }
-                    }
+                            VerticalBox {
+                                padding: 12px;
+                                spacing: 8px;
+                                Text { text: root.storage-block-activity-label; accessible-label: root.storage-block-activity-label; color: #e4ebf3; font-size: 13px; }
 
-                    ChartPanel {
-                        vertical-stretch: 1;
-                        title: root.performance-cpu-total-label;
-                        points: root.cpu-history;
-                        accent: #70b5ff;
-                        range-start: root.cpu-history-start-label;
-                        now-label: root.chart-now-label;
-                        waiting-label: root.chart-waiting-label;
-                    }
-
-                    ChartPanel {
-                        vertical-stretch: 1;
-                        title: root.performance-memory-used-label;
-                        points: root.memory-history;
-                        accent: #50c99a;
-                        range-start: root.memory-history-start-label;
-                        now-label: root.chart-now-label;
-                        waiting-label: root.chart-waiting-label;
-                    }
-
-                    Rectangle {
-                        height: 128px;
-                        background: #19212b;
-                        border-color: #2c3744;
-                        border-width: 1px;
-                        border-radius: 8px;
-                        VerticalBox {
-                            padding: 12px;
-                            spacing: 6px;
-                            Text { text: root.performance-cpu-per-core-label; accessible-label: root.performance-cpu-per-core-label; color: #e4ebf3; font-size: 13px; }
-                            if root.cpu-cores.length == 0: Text {
-                                text: root.performance-cpu-unavailable-label;
-                                accessible-label: root.performance-cpu-unavailable-label;
-                                color: #8493a5;
-                                font-size: 12px;
-                            }
-                            if root.cpu-cores.length > 0: ListView {
-                                vertical-stretch: 1;
-                                for core in root.cpu-cores: HorizontalLayout {
+                                HorizontalLayout {
                                     height: 22px;
                                     spacing: 8px;
-                                    Text { text: core.name; accessible-label: core.name; color: #a6b3c2; width: 62px; font-size: 11px; vertical-alignment: center; }
-                                    Rectangle {
-                                        horizontal-stretch: 1;
-                                        height: 7px;
-                                        background: #10171f;
-                                        border-radius: 4px;
-                                        Rectangle {
-                                            width: parent.width * core.fraction;
-                                            height: parent.height;
-                                            background: #70b5ff;
-                                            border-radius: 4px;
-                                        }
+                                    Text { text: root.storage-device-label; accessible-label: root.storage-device-label; color: #9eacbd; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
+                                    Text { text: root.storage-read-label; accessible-label: root.storage-read-label; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.storage-write-label; accessible-label: root.storage-write-label; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.storage-read-iops-label; accessible-label: root.storage-read-iops-label; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.storage-write-iops-label; accessible-label: root.storage-write-iops-label; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.storage-busy-label; accessible-label: root.storage-busy-label; color: #9eacbd; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                                }
+
+                                if root.block-devices.length == 0: Text {
+                                    vertical-stretch: 1;
+                                    text: root.block-device-io-status;
+                                    accessible-label: root.block-device-io-status;
+                                    color: #8493a5;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                if root.block-devices.length > 0: ListView {
+                                    vertical-stretch: 1;
+                                    for device in root.block-devices: HorizontalLayout {
+                                        height: 30px;
+                                        spacing: 8px;
+                                        Text { text: device.name; color: #e5ebf2; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; }
+                                        Text { text: device.read-rate; color: #a6b3c2; font-size: 11px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: device.write-rate; color: #a6b3c2; font-size: 11px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: device.read-iops; color: #a6b3c2; font-size: 11px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: device.write-iops; color: #a6b3c2; font-size: 11px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: device.read-latency; color: #a6b3c2; font-size: 11px; width: 62px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: device.write-latency; color: #a6b3c2; font-size: 11px; width: 62px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: device.busy; color: #a6b3c2; font-size: 11px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
                                     }
-                                    Text { text: core.usage; color: #a6b3c2; width: 54px; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
                                 }
                             }
                         }
                     }
 
-                    Rectangle {
-                        height: 104px;
-                        background: #19212b;
-                        border-color: #2c3744;
-                        border-width: 1px;
-                        border-radius: 8px;
-                        VerticalBox {
-                            padding: 12px;
-                            spacing: 6px;
-                            Text { text: root.performance-gpu-vram-label; accessible-label: root.performance-gpu-vram-label; color: #e4ebf3; font-size: 13px; }
-                            if root.gpus.length == 0: Text {
-                                text: root.gpu-status;
-                                accessible-label: root.gpu-status;
-                                color: #8493a5;
-                                font-size: 12px;
-                                vertical-alignment: center;
-                            }
-                            if root.gpus.length > 0 && root.gpu-status != "": Text {
-                                text: root.gpu-status;
-                                accessible-label: root.gpu-status;
-                                color: #f0bd69;
-                                font-size: 11px;
-                                vertical-alignment: center;
-                            }
-                            if root.gpus.length > 0: ListView {
-                                vertical-stretch: 1;
-                                for gpu in root.gpus: HorizontalLayout {
-                                    height: 22px;
-                                    spacing: 8px;
-                                    Text { text: gpu.name; color: #e5ebf2; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
-                                    Text { text: gpu.utilization; color: #a6b3c2; font-size: 11px; width: 48px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: gpu.memory; color: #a6b3c2; font-size: 11px; width: 120px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: gpu.temperature; color: #a6b3c2; font-size: 11px; width: 58px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: gpu.clocks; color: #a6b3c2; font-size: 11px; width: 100px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: gpu.power; color: #a6b3c2; font-size: 11px; width: 52px; horizontal-alignment: right; vertical-alignment: center; }
-                                }
-                            }
+                    if root.active-page == MainPage.network: VerticalBox {
+                        spacing: 12px;
+
+                        HorizontalLayout {
+                            height: 32px;
+                            Text { text: root.nav-network-label; accessible-label: root.nav-network-label; color: #edf2f7; font-size: 19px; }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                            Text { text: root.network-interface-count; accessible-label: root.network-interface-count; color: #8493a5; font-size: 12px; vertical-alignment: center; }
                         }
-                    }
-                }
 
-                if root.active-page == MainPage.storage: VerticalBox {
-                    spacing: 12px;
+                        Rectangle {
+                            vertical-stretch: 1;
+                            background: #19212b;
+                            border-color: #2c3744;
+                            border-width: 1px;
+                            border-radius: 8px;
 
-                    HorizontalLayout {
-                        height: 32px;
-                        spacing: 8px;
-                        Text { text: root.nav-storage-label; accessible-label: root.nav-storage-label; color: #edf2f7; font-size: 19px; }
-                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: root.volume-count; accessible-label: root.volume-count; color: #8493a5; font-size: 12px; vertical-alignment: center; }
-                        Text { text: root.storage-units-label; accessible-label: root.storage-units-label; color: #8493a5; font-size: 11px; vertical-alignment: center; }
-                        byte_units_si := RangeChoice {
-                            width: 44px;
-                            label: "SI";
-                            active: root.byte-unit-system == UiByteUnitSystem.si;
-                            accessible-label: root.storage-si-accessible-label;
-                            activated => {
-                                root.byte-unit-system = UiByteUnitSystem.si;
-                                root.byte-unit-system-selected("si");
-                            }
-                        }
-                        byte_units_iec := RangeChoice {
-                            width: 44px;
-                            label: "IEC";
-                            active: root.byte-unit-system == UiByteUnitSystem.iec;
-                            accessible-label: root.storage-iec-accessible-label;
-                            activated => {
-                                root.byte-unit-system = UiByteUnitSystem.iec;
-                                root.byte-unit-system-selected("iec");
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                        background: #19212b;
-                        border-color: #2c3744;
-                        border-width: 1px;
-                        border-radius: 8px;
-
-                        VerticalBox {
-                            padding: 12px;
-                            spacing: 8px;
-
-                            HorizontalLayout {
-                                height: 28px;
+                            VerticalBox {
+                                padding: 12px;
                                 spacing: 8px;
-                                Text { text: root.storage-mount-point-label; accessible-label: root.storage-mount-point-label; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.storage-read-label; accessible-label: root.storage-read-label; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.storage-write-label; accessible-label: root.storage-write-label; color: #9eacbd; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.storage-file-system-label; accessible-label: root.storage-file-system-label; color: #9eacbd; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.storage-available-label; accessible-label: root.storage-available-label; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.storage-total-label; accessible-label: root.storage-total-label; color: #9eacbd; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                            }
 
-                            if root.volumes.length == 0: Text {
-                                vertical-stretch: 1;
-                                text: root.volume-status;
-                                accessible-label: root.volume-status;
-                                color: #8493a5;
-                                font-size: 13px;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-
-                            if root.volumes.length > 0: ListView {
-                                vertical-stretch: 1;
-                                for volume in root.volumes: HorizontalLayout {
-                                    height: 32px;
+                                HorizontalLayout {
+                                    height: 28px;
                                     spacing: 8px;
-                                    Text { text: volume.mount-point; color: #e5ebf2; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
-                                    Text { text: volume.read-rate; color: #a6b3c2; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: volume.write-rate; color: #a6b3c2; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: volume.file-system; color: #a6b3c2; font-size: 12px; width: 150px; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
-                                    Text { text: volume.available; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: volume.total; color: #a6b3c2; font-size: 12px; width: 112px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.network-interface-label; accessible-label: root.network-interface-label; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
+                                    Text { text: root.network-kind-label; accessible-label: root.network-kind-label; color: #9eacbd; font-size: 12px; width: 110px; vertical-alignment: center; }
+                                    Text { text: root.network-received-label; accessible-label: root.network-received-label; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: root.network-sent-label; accessible-label: root.network-sent-label; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
                                 }
-                            }
-                        }
-                    }
 
-                    Rectangle {
-                        vertical-stretch: 1;
-                        background: #19212b;
-                        border-color: #2c3744;
-                        border-width: 1px;
-                        border-radius: 8px;
-
-                        VerticalBox {
-                            padding: 12px;
-                            spacing: 8px;
-                            Text { text: root.storage-block-activity-label; accessible-label: root.storage-block-activity-label; color: #e4ebf3; font-size: 13px; }
-
-                            HorizontalLayout {
-                                height: 22px;
-                                spacing: 8px;
-                                Text { text: root.storage-device-label; accessible-label: root.storage-device-label; color: #9eacbd; font-size: 10px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.storage-read-label; accessible-label: root.storage-read-label; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.storage-write-label; accessible-label: root.storage-write-label; color: #9eacbd; font-size: 10px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.storage-read-iops-label; accessible-label: root.storage-read-iops-label; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.storage-write-iops-label; accessible-label: root.storage-write-iops-label; color: #9eacbd; font-size: 10px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.storage-busy-label; accessible-label: root.storage-busy-label; color: #9eacbd; font-size: 10px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
-                            }
-
-                            if root.block-devices.length == 0: Text {
-                                vertical-stretch: 1;
-                                text: root.block-device-io-status;
-                                accessible-label: root.block-device-io-status;
-                                color: #8493a5;
-                                font-size: 12px;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-
-                            if root.block-devices.length > 0: ListView {
-                                vertical-stretch: 1;
-                                for device in root.block-devices: HorizontalLayout {
-                                    height: 30px;
-                                    spacing: 8px;
-                                    Text { text: device.name; color: #e5ebf2; font-size: 11px; horizontal-stretch: 1; vertical-alignment: center; }
-                                    Text { text: device.read-rate; color: #a6b3c2; font-size: 11px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: device.write-rate; color: #a6b3c2; font-size: 11px; width: 92px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: device.read-iops; color: #a6b3c2; font-size: 11px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: device.write-iops; color: #a6b3c2; font-size: 11px; width: 74px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: device.read-latency; color: #a6b3c2; font-size: 11px; width: 62px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: device.write-latency; color: #a6b3c2; font-size: 11px; width: 62px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: device.busy; color: #a6b3c2; font-size: 11px; width: 64px; horizontal-alignment: right; vertical-alignment: center; }
+                                if root.network-interfaces.length == 0: Text {
+                                    vertical-stretch: 1;
+                                    text: root.network-status;
+                                    accessible-label: root.network-status;
+                                    color: #8493a5;
+                                    font-size: 13px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
                                 }
-                            }
-                        }
-                    }
-                }
 
-                if root.active-page == MainPage.network: VerticalBox {
-                    spacing: 12px;
-
-                    HorizontalLayout {
-                        height: 32px;
-                        Text { text: root.nav-network-label; accessible-label: root.nav-network-label; color: #edf2f7; font-size: 19px; }
-                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Text { text: root.network-interface-count; accessible-label: root.network-interface-count; color: #8493a5; font-size: 12px; vertical-alignment: center; }
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                        background: #19212b;
-                        border-color: #2c3744;
-                        border-width: 1px;
-                        border-radius: 8px;
-
-                        VerticalBox {
-                            padding: 12px;
-                            spacing: 8px;
-
-                            HorizontalLayout {
-                                height: 28px;
-                                spacing: 8px;
-                                Text { text: root.network-interface-label; accessible-label: root.network-interface-label; color: #9eacbd; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; }
-                                Text { text: root.network-kind-label; accessible-label: root.network-kind-label; color: #9eacbd; font-size: 12px; width: 110px; vertical-alignment: center; }
-                                Text { text: root.network-received-label; accessible-label: root.network-received-label; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: root.network-sent-label; accessible-label: root.network-sent-label; color: #9eacbd; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
-                            }
-
-                            if root.network-interfaces.length == 0: Text {
-                                vertical-stretch: 1;
-                                text: root.network-status;
-                                accessible-label: root.network-status;
-                                color: #8493a5;
-                                font-size: 13px;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-
-                            if root.network-interfaces.length > 0: ListView {
-                                vertical-stretch: 1;
-                                for interface in root.network-interfaces: HorizontalLayout {
-                                    height: 32px;
-                                    spacing: 8px;
-                                    accessible-role: list-item;
-                                    accessible-label: interface.name + ", " + interface.kind;
-                                    Text { text: interface.name; color: #e5ebf2; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
-                                    Text { text: interface.kind; color: #a6b3c2; font-size: 12px; width: 110px; vertical-alignment: center; }
-                                    Text { text: interface.received; color: #a6b3c2; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
-                                    Text { text: interface.transmitted; color: #a6b3c2; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                if root.network-interfaces.length > 0: ListView {
+                                    vertical-stretch: 1;
+                                    for interface in root.network-interfaces: HorizontalLayout {
+                                        height: 32px;
+                                        spacing: 8px;
+                                        accessible-role: list-item;
+                                        accessible-label: interface.name + ", " + interface.kind;
+                                        Text { text: interface.name; color: #e5ebf2; font-size: 12px; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                                        Text { text: interface.kind; color: #a6b3c2; font-size: 12px; width: 110px; vertical-alignment: center; }
+                                        Text { text: interface.received; color: #a6b3c2; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                        Text { text: interface.transmitted; color: #a6b3c2; font-size: 12px; width: 140px; horizontal-alignment: right; vertical-alignment: center; }
+                                    }
                                 }
                             }
                         }
