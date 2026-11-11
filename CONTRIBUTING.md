@@ -2,7 +2,8 @@
 
 ## Ambiente
 
-- Rust 1.98.1, instalado por `rust-toolchain.toml` com `rustfmt` e `clippy`.
+- `mise` instalado; `mise.toml` define o toolchain Rust e os componentes
+  `rustfmt` e `clippy`. Na raiz do checkout, execute `mise install`.
 - O workspace é dividido entre `apps/` (GUI, agente e CLI), `crates/`
   (domínio, coletores, IPC, configurações e exportadores), `proto/` (contratos
   IPC) e `docs/` (plano e ADRs).
@@ -13,10 +14,10 @@
 Execute o mesmo gate usado no CI, na raiz do repositório:
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-SLINT_EMIT_DEBUG_INFO=1 cargo test --workspace --locked
-cargo build --workspace --locked
+mise exec -- cargo fmt --all -- --check
+mise exec -- cargo clippy --workspace --all-targets --locked -- -D warnings
+SLINT_EMIT_DEBUG_INFO=1 mise exec -- cargo test --workspace --locked
+mise exec -- cargo build --workspace --locked
 ```
 
 `SLINT_EMIT_DEBUG_INFO=1` é necessário para os testes de interação da GUI. O
@@ -24,7 +25,7 @@ teste de desempenho IPC de 10 mil processos é manual e ignorado na suíte padr�
 rode-o em release quando a alteração afetar consultas/ordenação de processos:
 
 ```sh
-cargo test --locked -p native-monitor-ipc --release filter_sort_10k_processes_p95 -- --ignored --nocapture
+mise exec -- cargo test --locked -p native-monitor-ipc --release filter_sort_10k_processes_p95 -- --ignored --nocapture
 ```
 
 O benchmark manual da UI também é ignorado na suíte padrão. Ele usa o renderer
@@ -33,7 +34,7 @@ modelo e `take_snapshot` com 10 mil processos sintéticos e gráficos de 1.200
 pontos; não mede entrada nativa do SO, IPC de produção ou GPU física:
 
 ```sh
-SLINT_EMIT_DEBUG_INFO=1 cargo test --locked -p native-monitor-desktop ui_performance_budget_10k_processes_and_1200_chart_points --release -- --ignored --nocapture
+SLINT_EMIT_DEBUG_INFO=1 mise exec -- cargo test --locked -p native-monitor-desktop ui_performance_budget_10k_processes_and_1200_chart_points --release -- --ignored --nocapture
 ```
 
 ## Auditoria de dependências e licenças
@@ -42,10 +43,10 @@ Execute na raiz para verificar advisories RustSec e a allow-list de licenças
 aprovada em [`deny.toml`](deny.toml) / [ADR-018](docs/adr/018-third-party-license-allowlist.md):
 
 ```sh
-cargo install cargo-audit --version 0.22.2 --locked
-cargo audit
-cargo install cargo-deny --version 0.20.2 --locked
-cargo deny check licenses
+mise exec -- cargo install cargo-audit --version 0.22.2 --locked
+mise exec -- cargo audit
+mise exec -- cargo install cargo-deny --version 0.20.2 --locked
+mise exec -- cargo deny check licenses
 ```
 
 O CI executa `cargo audit` e `cargo deny check licenses` na perna Linux; essas
@@ -66,8 +67,8 @@ O workspace pode gerar SBOMs JSON CycloneDX 1.5 por pacote, incluindo
 dependências dos alvos disponíveis, com `cargo-cyclonedx` 0.5.10:
 
 ```sh
-cargo install cargo-cyclonedx --version 0.5.10 --locked
-cargo cyclonedx --manifest-path Cargo.toml --format json --spec-version 1.5 --target all
+mise exec -- cargo install cargo-cyclonedx --version 0.5.10 --locked
+mise exec -- cargo cyclonedx --manifest-path Cargo.toml --format json --spec-version 1.5 --target all
 ```
 
 O comando gera um arquivo `*.cdx.json` ao lado de cada `Cargo.toml` de pacote.
@@ -91,8 +92,8 @@ Os ensaios Remote Write iniciam containers locais descartáveis e usam somente
 loopback:
 
 ```sh
-scripts/test-victoriametrics-remote-write.sh
-scripts/test-prometheus-remote-write.sh
+mise exec -- scripts/test-victoriametrics-remote-write.sh
+mise exec -- scripts/test-prometheus-remote-write.sh
 ```
 
 Eles requerem Docker com Compose e `curl`, não devem apontar para destinos

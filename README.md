@@ -43,29 +43,30 @@ de plataforma descritas abaixo. Ainda não é uma release V1 homologada.
 
 ## Desenvolvimento local
 
-Pré-requisitos: Rust `1.98.1` (definido em `rust-toolchain.toml`) e as
-dependências nativas do Slint para a plataforma.
+Pré-requisitos: [mise](https://mise.jdx.dev/) e as dependências nativas do Slint
+para a plataforma. O `mise.toml` do repositório é a fonte única do toolchain Rust
+e dos componentes necessários; instale-os na raiz com `mise install`.
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo build --workspace
+mise exec -- cargo fmt --all -- --check
+mise exec -- cargo clippy --workspace --all-targets -- -D warnings
+mise exec -- cargo test --workspace
+mise exec -- cargo build --workspace
 ```
 
-Depois de `cargo build --workspace`, execute a GUI; na primeira abertura ela
-registra/inicia o agente pela sessão do usuário. A CLI pode ser usada
+Depois de `mise exec -- cargo build --workspace`, execute a GUI; na primeira
+abertura ela registra/inicia o agente pela sessão do usuário. A CLI pode ser usada
 separadamente para diagnóstico:
 
 ```sh
-cargo run -p native-monitor-desktop
-cargo run -p native-monitorctl -- status
-cargo run -p native-monitorctl -- capabilities
-cargo run -p native-monitorctl -- processes --sort cpu --limit 25
-cargo run -p native-monitorctl -- devices --type disk
-cargo run -p native-monitorctl -- devices --type block
-cargo run -p native-monitorctl -- devices --type gpu
-cargo run -p native-monitorctl -- devices --type battery
+mise exec -- cargo run -p native-monitor-desktop
+mise exec -- cargo run -p native-monitorctl -- status
+mise exec -- cargo run -p native-monitorctl -- capabilities
+mise exec -- cargo run -p native-monitorctl -- processes --sort cpu --limit 25
+mise exec -- cargo run -p native-monitorctl -- devices --type disk
+mise exec -- cargo run -p native-monitorctl -- devices --type block
+mise exec -- cargo run -p native-monitorctl -- devices --type gpu
+mise exec -- cargo run -p native-monitorctl -- devices --type battery
 ```
 
 Para validar tendências de I/O físico Linux contra os contadores independentes
@@ -75,7 +76,7 @@ escreve e lê um arquivo temporário (64 MiB por padrão, máximo 256 MiB) e o
 remove ao sair:
 
 ```sh
-scripts/validate-linux-block-io.sh --directory /caminho/no/filesystem
+mise exec -- scripts/validate-linux-block-io.sh --directory /caminho/no/filesystem
 ```
 
 Revise o espaço livre e o destino antes de executar. O ensaio não instala
@@ -83,15 +84,15 @@ dependências, não pede privilégios e não substitui validação nativa em cad
 
 Em desenvolvimento, o registro aponta para os binários em `target/debug`; apagar
 ou mover esse diretório invalida o início automático registrado. Para um teste
-manual isolado do IPC, ainda é possível iniciar `cargo run -p
+manual isolado do IPC, ainda é possível iniciar `mise exec -- cargo run -p
 native-monitor-agent -- run`, mas isso não é necessário no fluxo normal da GUI.
 
 O caminho opcional de configuração é TOML:
 
 ```sh
-cargo run -p native-monitor-agent -- run docs/settings.example.toml
-cargo run -p native-monitorctl -- processes --limit 1000
-cargo run -p native-monitorctl -- process-tree 1234:1700000000
+mise exec -- cargo run -p native-monitor-agent -- run docs/settings.example.toml
+mise exec -- cargo run -p native-monitorctl -- processes --limit 1000
+mise exec -- cargo run -p native-monitorctl -- process-tree 1234:1700000000
 ```
 
 `process-tree` exige PID e hora de início exatos mostrados pela lista; a operação
